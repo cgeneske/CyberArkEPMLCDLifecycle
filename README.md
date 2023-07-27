@@ -41,9 +41,9 @@ There are a series of script variables that must be set off default, to values t
 - `$SkipOffBoarding`
     - When set to `$true` will skip the off-boarding logic.
 - `$EndpointUserNamesWin`
-    - List of one or more usernames to lifecycle manage for all Windows-based EPM endpoints.
+    - List of one or more local account usernames to lifecycle manage for all Windows-based EPM endpoints.
 - `$EndpointUserNamesMac`
-    - List of one or more usernames to lifecycle manage for all Mac-based EPM endpoints.
+    - List of one or more local account usernames to lifecycle manage for all Mac-based EPM endpoints.
 - `$EndpointDomainNames`
     - List of one or more DNS domain names that EPM endpoints have membership to. Applicable only for Windows endpoints as Mac endpoints are assumed to have no domain name. Used with the "ValidateDomainNamesDNS" and "SkipIfNotInDNS" -- See below for complete info on these variables.
         - If `$ValidateDomainNamesDNS` is set to `$false`, `$EndpointDomainNames` must be set to a single domain name or empty (i.e. "").  
@@ -52,7 +52,6 @@ There are a series of script variables that must be set off default, to values t
 
         <br/>
         Valid Examples / Scenarios:
-        <br/>
         <br/>
         
         Disable Domain Name resolution via DNS and consider all EPM endpoints as having a standard domain-name of "cybr.com":
@@ -202,5 +201,5 @@ There are a series of script variables that must be set off default, to values t
 CyberArk_EPMLCD_Lifecycle.ps1
 ```
 
-![Example Variables](images/VariablesExample.PNG)
-![Example Output](images/OutputExample.PNG)
+![Example Variables](images/variablesexample.PNG)
+![Example Output](images/outputexample.png)

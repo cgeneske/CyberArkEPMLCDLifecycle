@@ -158,7 +158,7 @@ CCPAppID                - The Application ID registered in CyberArk that should 
                           Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
 
 .EXAMPLE
-CyberArkLCDLifecycle_Centralized.ps1
+CyberArk_EPMLCD_Lifecycle.ps1
 
 .INPUTS
 None
@@ -190,9 +190,9 @@ $SkipOnBoarding = $false
 $SkipOffBoarding = $false
 
 #General Environment Details
-$EndpointUserNamesWin = @("Administrator", "X_Admin")
+$EndpointUserNamesWin = "Administrator"
 $EndpointUserNamesMac = "root"
-$EndpointDomainNames = ""
+$EndpointDomainNames = "cybr.com"
 $OnboardingPlatformIdWin = "WinLooselyDevice"
 $OnboardingPlatformIdMac = "MACLooselyDevice"
 $OnboardingSafeWin = "EPM LCD Staging"
@@ -204,8 +204,8 @@ $PAMHostname = "pam.cybr.com"
 $IgnoreSSLCertErrors = $false
 
 #Dynamic FQDN Lookup Options
-$ValidateDomainNamesDNS = $true
-$SkipIfNotInDNS = $false 
+$ValidateDomainNamesDNS = $false
+$SkipIfNotInDNS = $false
 
 #Source for PAM and EPM API credentials
 $APIUserSource = [APIUserSource]::CyberArkCCP 
@@ -233,8 +233,8 @@ $CCPAppID = "EPM LCD Lifecycle"
 $LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
 $ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
 
-$PAMPageSize = 500
-$EPMPageSize = 2500
+$PAMPageSize = 1000
+$EPMPageSize = 5000
 $MaximumDNSFailures = 10
 
 $PAMBaseURI = "https://$PAMHostname/PasswordVault"
@@ -874,18 +874,22 @@ Function Get-PAMLCDAccounts {
 Function Get-EPMComputers {
     <#
     .SYNOPSIS
-        Gets all computers from the designated EPM sets.
+        Gets all computers from the designated EPM sets and qualifies them (FQDN).
     .DESCRIPTION
-        Gets all computers from the designated EPM sets and returns as a list.
+        Gets all computers from the designated EPM sets, qualifies them (FQDN), and returns
+        both the list of qualifed endpoints as well as the ignore list (as per configuration).
     .PARAMETER SessionToken
         Session token that was received from the EPM Logon endpoint
     .PARAMETER ManagerURL
         The EPM Server URL used for CRUD APIs as received from the EPM Logon endpoint
     .EXAMPLE
-        Get-EPMComputers -SessionToken "Caz2QE%2b%2b8uVbTecoGMBa1Dxr7h..." -ManagerURL "https://na123.epm.cyberark.com"
+        $EPMEndpoints, $ignoreList = Get-EPMComputers -SessionToken "Caz2QE%2b%2b8uVbTecoGMBa1Dxr7h..." -ManagerURL "https://na123.epm.cyberark.com"
     .NOTES
         The following script-level variables are used:
             - $EPMSetIDs
+            - $ValidateDomainNamesDNS
+            - $SkipIfNotInDNS
+            - $MaximumDNSFailures
 
         Author: Craig Geneske
     #>
@@ -963,29 +967,105 @@ Function Get-EPMComputers {
             while ($result.Computers.Count -eq $EPMPageSize)
         }
         Write-Log -Type INF -Message "Retrieved [$computersCounter] EPM Computers"
-        return $EPMComputerList
     }
     catch {
         Invoke-ParseFailureResponse -Component "EPM" -ErrorRecord $_ -Message "Failed to get all EPM computers"
         throw
     }
+
+    #Fully-qualify all EPM Computers via DNS if ValidateDomainDNSNames is set (dynamic), otherwise via EndpointDomainNames (static)
+    $qualifiedComps = @()
+    $ignoreList = @()
+    if ($ValidateDomainNamesDNS) {
+        Write-Log -Type INF -Message "Attempting to qualify all Windows EPM computers via dynamic DNS domain name lookup..."
+        $countDNSIssues = 0
+        foreach ($comp in $EPMComputerList) {
+            if ($comp.Platform -eq "MacOS") {
+                $qualifiedComps += $comp
+                continue
+            }
+            $dnsNameFound = $false
+            foreach ($domainName in $EndpointDomainNames) {
+                try {
+                    Resolve-DnsName -Name ($comp.ComputerName + "." + $domainName) -ErrorAction Stop *> $null
+                    $qualifiedComps += [PSCustomObject]@{
+                        ComputerName = ($comp.ComputerName + "." + $domainName)
+                        Platform = $comp.Platform
+                    }
+                    $dnsNameFound = $true
+                    break
+                }
+                catch {
+                    if ($_.Exception.Message -match "DNS name does not exist") {
+                        $Error.Clear()
+                        continue
+                    }
+                    else {
+                        Write-Log -Type WRN -Message "Potential issue with DNS resolution, skipping candidacy for [$($comp.ComputerName)] --> $($_.Exception.Message)"
+                        $countDNSIssues++
+                        $ignoreList += $comp
+                        if ($countDNSIssues -ge $MaximumDNSFailures) {
+                            Write-Log -Type ERR -Message "Maximum general DNS failures reached [$MaximumDNSFailures]."
+                            throw
+                        }
+                        $Error.Clear()
+                        continue
+                    }
+                }
+            }
+            if (!$dnsNameFound) {
+                if ($SkipIfNotInDNS) {
+                    Write-Log -Type WRN -Message "Domain name not found for [$($comp.ComputerName)], skipping candidacy per the configuration"
+                    $ignoreList += $comp
+                    continue
+                }
+                $qualifiedComps += $comp
+            }
+        }
+    }
+    else {
+        if ($EndpointDomainNames) {
+            Write-Log -Type INF -Message "Qualifying all Windows EPM computers with provided domain name [$EndpointDomainNames]..."
+            foreach ($comp in $EPMComputerList) {
+                if ($comp.Platform -eq "MacOS") {
+                    $qualifiedComps += $comp
+                    continue
+                }
+                $qualifiedComps += [PSCustomObject]@{
+                    ComputerName = ($comp.ComputerName + "." + $EndpointDomainNames)
+                    Platform = $comp.Platform
+                }
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "Treating all EPM computer names as having no domain name given EndpointDomainNames is empty"
+            $qualifiedComps = $EPMComputerList
+        }
+    }
+    Write-Log -Type INF -Message "EPM computer qualification complete"
+    return $qualifiedComps, $ignoreList
 }
 
-Function Add-PAMAccount {
+Function Add-PAMAccounts {
     <#
     .SYNOPSIS
-        Adds account to PAM via API and queues immediate change.
+        Adds accounts to PAM via API.
     .DESCRIPTION
-        Adds account to PAM via API and queues immediate change.
+        Adds accounts to PAM via API.
     .PARAMETER SessionToken
         Session token that was received from the PAM Logon endpoint
-    .PARAMETER Username
-        Username of the account to onboard
-    .PARAMETER Address
-        Address of the account to onboard
+    .PARAMETER AccountList
+       Array of PSObject representing the return value of Get-OnBoardingCandidates (Members: UserName, Address, Platform)
     .EXAMPLE
-        Add-PAMAccounts -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -AccountsList $List
+        Add-PAMAccounts -PAMSessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -AccountList $onboardCandidates
     .NOTES
+        The following script-level variables are used:
+            - $OnboardingPlatformIdWin
+            - $OnboardingPlatformIdMac
+            - $OnboardingSafeWin
+            - $OnBoaridngSafeMac
+            - $PAMAccountsUrl
+
         Author: Craig Geneske
     #>
     Param(
@@ -993,52 +1073,62 @@ Function Add-PAMAccount {
         [string]$SessionToken,
 
         [Parameter(Mandatory = $true)]
-        [string]$UserName,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Address,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Safe,
-
-        [Parameter(Mandatory = $true)]
-        [string]$PlatformID
+        [PSObject[]]$AccountList
     )
-    try {
-        Write-Log -Type INF -Message "Onboarding account [$UserName@$Address] to PAM..."
-        $body = [PSCustomObject]@{
-            userName = $UserName
-            address = $Address
-            safeName = $Safe
-            platformId = $PlatformID
-            secretType = "password"
-        } | ConvertTo-Json
-        Invoke-RestMethod -Method Post -Uri $PAMAccountsUrl -Body $body -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
-        #Invoke-RestMethod -Method Post -Uri ($PAMAccountsUrl + "/$($result.id)/Change/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+
+    $onboardedTotal = 0
+    Write-Log -Type INF -Message "###########################################"
+    Write-Log -Type INF -Message "#                                         #"
+    Write-Log -Type INF -Message "# BEGIN ON-BOARDING ALL CANDIDATES TO PAM #"
+    Write-Log -Type INF -Message "#                                         #"
+    Write-Log -Type INF -Message "###########################################"
+    foreach ($account in $AccountList) {
+        try {
+            $body = @{
+                userName = $account.UserName
+                address = $account.Address
+                secretType = "password"
+            }
+            switch($account.Platform) {
+                "Windows" { $body.Add("platformId", $OnboardingPlatformIdWin); $body.Add("safeName", $OnboardingSafeWin) }
+                "MacOS" { $body.Add("platformId", $OnboardingPlatformIdMac); $body.Add("safeName", $OnboardingSafeMac) }
+            }
+            $body = $body | ConvertTo-Json
+            Write-Log -Type INF -Message "On-boarding account [$($account.UserName)@$($account.Address)] to PAM..."
+            Invoke-RestMethod -Method Post -Uri $PAMAccountsUrl -Body $body -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+            $onboardedTotal++
+        }
+        catch {
+            #TODO: If exception caused by invalid PAM Session we should abort, otherwise, treat as non-fatal and continue.
+            Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to on-board account [$($account.UserName)@$($account.Address)] to PAM"
+            $Error.Clear()
+            continue
+        }
     }
-    catch {
-        Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to complete onboarding actions for [$UserName@$Address]"
-        throw
-    }
+    Write-Log -Type INF -Message "###############################"
+    Write-Log -Type INF -Message "#                             #"
+    Write-Log -Type INF -Message "# ON-BOARDING TO PAM COMPLETE #"
+    Write-Log -Type INF -Message "#                             #"
+    Write-Log -Type INF -Message "###############################"
+    Write-Log -Type INF -Message "[$onboardedTotal] of [$($AccountList.Count)] accounts were successfully on-boarded"
 }
 
-Function Remove-PAMAccount {
+Function Remove-PAMAccounts {
     <#
     .SYNOPSIS
-        Offboards account from PAM via API.
+        Removes accounts from PAM via API.
     .DESCRIPTION
-        Offboards account from PAM via API.
+        Removes accounts from PAM via API.
     .PARAMETER SessionToken
         Session token that was received from the PAM Logon endpoint
-    .PARAMETER UserName
-        Username of the account being offboarded
-    .PARAMETER Address
-        Address of the account being offboarded
-    .PARAMETER AccountId
-        Internal AccountId of the account being offboarded
+    .PARAMETER AccountList
+       Array of PSObject representing the return value of Get-OffBoardCandidates (Members: "Get Accounts" PAM API deserialized object)
     .EXAMPLE
-        Remove-PAMAccount -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -AccountId "64_3" -UserName "Administrator" -Address "Client.cybr.com"
+        Remove-PAMAccounts -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -AccountList $offboardCandidates
     .NOTES
+        The following script-level variables are used:
+        - $PAMAccountsUrl
+
         Author: Craig Geneske
     #>
     Param(
@@ -1046,23 +1136,34 @@ Function Remove-PAMAccount {
         [string]$SessionToken,
         
         [Parameter(Mandatory = $true)]
-        [string]$UserName,
-        
-        [Parameter(Mandatory = $true)]
-        [string]$Address,
-
-        [Parameter(Mandatory = $true)]
-        [string]$AccountId
+        [PSObject[]]$AccountList
     )
 
-    try {
-        Write-Log -Type INF -Message "Offboarding account [$AccountId - $UserName@$Address] from PAM..."
-        Invoke-RestMethod -Method Delete -Uri ($PAMAccountsUrl + "/$AccountId/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+    $offboardTotal = 0
+    Write-Log -Type INF -Message "##############################################"
+    Write-Log -Type INF -Message "#                                            #"
+    Write-Log -Type INF -Message "# BEGIN OFF-BOARDING ALL CANDIDATES FROM PAM #"
+    Write-Log -Type INF -Message "#                                            #"
+    Write-Log -Type INF -Message "##############################################"
+    foreach ($account in $AccountList) {
+        try {
+            Write-Log -Type INF -Message "Off-boarding account [$($account.id) - $($account.UserName)@$($account.Address)] from PAM..."
+            Invoke-RestMethod -Method Delete -Uri ($PAMAccountsUrl + "/$($account.id)/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+            $offboardTotal++
+        }
+        catch {
+            #TODO: If exception caused by invalid PAM Session we should abort, otherwise, treat as non-fatal and continue.
+            Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to off-board account [$($account.UserName)@$($account.Address)] from PAM"
+            $Error.Clear()
+            continue
+        }
     }
-    catch {
-        Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to off-board [$UserName@$Address - $AccountId]"
-        throw
-    }
+    Write-Log -Type INF -Message "##################################"
+    Write-Log -Type INF -Message "#                                #"
+    Write-Log -Type INF -Message "# OFF-BOARDING FROM PAM COMPLETE #"
+    Write-Log -Type INF -Message "#                                #"
+    Write-Log -Type INF -Message "##################################"
+    Write-Log -Type INF -Message "[$offboardTotal] of [$($AccountList.Count)] accounts were successfully off-boarded"
 }
 
 Function Confirm-ScriptVariables {
@@ -1122,6 +1223,239 @@ Function Confirm-ScriptVariables {
     Write-Log -Type INF -Message "Script Variables have been validated"
 }
 
+Function Get-OnBoardingCandidates {
+    <#
+    .SYNOPSIS
+        Determines all on-boarding candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
+    .DESCRIPTION
+        Determines all on-boarding candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
+        Returns an array of PSObject containing the Username, Address, and Platform to be used for on-boarding candidates
+    .PARAMETER PAMAccounts
+        An array of PSObject that represent the serialized results of a PAM "Get Accounts" API call
+    .PARAMETER EPMEndpoints
+        An array of PSObject that represents the serialized results of an EPM "Get Computers" API call (with qualified hostnames)
+    .EXAMPLE
+        $onboardCandidates = Get-OnBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
+    .NOTES
+        The following script-level variables are used:
+        - $EndpointUserNamesWin
+        - $EndpointUserNamesMac
+
+        Author: Craig Geneske
+    #>
+    param (
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$PAMAccounts,
+
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$EPMEndpoints
+    )
+
+    $onboardCandidates = @()
+    Write-Log -Type INF -Message "Determining onboarding candidates..."
+    foreach ($comp in $EPMEndpoints) {
+        $compExistsInPAM = $false
+        $potentialOnboardCandidates = @()
+        foreach ($account in $PAMAccounts) {
+            if ($account.address -match "^$($comp.ComputerName)$") {
+                $compExistsInPAM = $true
+                $potentialOnboardCandidates += $account
+            }
+        }
+        if (!$compExistsInPAM) {
+            $usernameList = @()
+            switch ($comp.Platform) {
+                "Windows" { $usernameList = $EndpointUserNamesWin}
+                "MacOS" { $usernameList = $EndpointUserNamesMac}
+            }
+
+            foreach ($username in $usernameList) {
+                $onboardCandidates += [PSCustomObject]@{
+                    Username = $username
+                    Address = $comp.ComputerName
+                    Platform = $comp.Platform
+                }
+            }
+            continue
+        }
+
+        $usernameList = @()
+        switch ($comp.Platform) {
+            "Windows" { $usernameList = $EndpointUserNamesWin}
+            "MacOS" { $usernameList = $EndpointUserNamesMac}
+        }
+        foreach ($username in $usernameList) {
+            $userNameExistsInPAM = $false
+            foreach ($account in $potentialOnboardCandidates) {
+                if ($account.userName -match "^$username$") {
+                    $userNameExistsInPAM = $true
+                    break
+                }
+            }
+            if (!$userNameExistsInPAM) {
+                $onboardCandidates += [PSCustomObject]@{
+                    Username = $username
+                    Address = $comp.ComputerName
+                    Platform = $comp.Platform
+                }
+            }
+        }
+    }
+
+    Write-Log -Type INF -Message "[$($onboardCandidates.Count)] account(s) identified for on-boarding"
+    return $onboardCandidates
+}
+
+Function Get-OffBoardingCandidates {
+    <#
+    .SYNOPSIS
+        Determines all off-boarding candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
+    .DESCRIPTION
+        Determines all off-boarding candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
+        Returns an array of PSObject containing the deserialized results of a PAM "Get Accounts" API call; .Id being used for offboarding
+    .PARAMETER PAMAccounts
+        An array of PSObject that represent the deserialized results of a PAM "Get Accounts" API call
+    .PARAMETER EPMEndpoints
+        An array of PSObject that represents the deserialized results of an EPM "Get Computers" API call (with qualified hostnames)
+    .PARAMETER IgnoreList
+        An array of PSObject that represent the deserialized results of an EPM "Get Computers" API call
+    .EXAMPLE
+        $offboardCandidates = Get-OffBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
+    .NOTES
+        The following script-level variables are used:
+        - $EndpointUserNamesWin
+        - $EndpointUserNamesMac
+        
+        Author: Craig Geneske
+    #>
+    param (
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$PAMAccounts,
+
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$EPMEndpoints,
+
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$IgnoreList
+    )
+
+    $offboardCandidates = @()
+    Write-Log -Type INF -Message "Determining offboarding candidates..."
+    foreach ($account in $PAMAccounts) {
+        $skipAccount = $false
+        if ($IgnoreList) {
+            foreach ($comp in $IgnoreList) {
+                if ($account.address -match "^$($comp.ComputerName).*$") {
+                    $skipAccount = $true
+                    break
+                }
+            }
+            if ($skipAccount) {
+                continue
+            }
+        }
+        $validAccount = $false
+        foreach ($comp in $EPMEndpoints) {
+            if ($account.address -match "^$($comp.ComputerName)$") {
+                $usernameList = @()
+                switch ($comp.Platform) {
+                    "Windows" { $usernameList = $EndpointUserNamesWin}
+                    "MacOS" { $usernameList = $EndpointUserNamesMac}
+                }
+                foreach ($username in $usernameList) {
+                    if ($account.userName -match "^$username$") {
+                        $validAccount = $true
+                        break
+                    }
+                }
+                break
+            }
+        }
+        if (!$validAccount) {
+            $offboardCandidates += $account
+        }
+    }
+    Write-Log -Type INF -Message "[$($offboardCandidates.Count)] account(s) identified for off-boarding"
+    return $offboardCandidates
+}
+
+Function Write-PAMLifecycleReport {
+    <#
+    .SYNOPSIS
+        Writes a report to console, log file, and CSV of all potential on-boarding, off-boarding and ignored candidates.
+    .DESCRIPTION
+        Writes a report to console, log file, and CSV of all potential on-boarding, off-boarding and ignored candidates.
+    .PARAMETER OnboardCandidates
+        An array of PSObject that represents the deserialized results of an EPM "Get Computers" API call (with qualified hostnames)
+        pared down to only the candidates that should be considered for on-boarding
+    .PARAMETER OffboardCandidates
+        An array of PSObject that represents the deserialized results of a PAM "Get Accounts" API call pared down to only
+        the candidates that should be considered for off-boarding.
+    .PARAMETER IgnoreList
+        An array of PSObject that represent the deserialized results of an EPM "Get Computers" API call, which should be ignored
+    .EXAMPLE
+        Write-Report -OnboardCandidates $onboardCandidates -OffboardCandidates $offboardCandidates -IgnoreList $ignoreList
+    .NOTES
+        The following script-level variables are used:
+        - ReportFilePath
+        
+        Author: Craig Geneske
+    #>
+    param (
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$OnboardCandidates,
+
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$OffboardCandidates,
+
+        [Parameter(Mandatory = $false)]
+        [PSObject[]]$IgnoreList
+    )
+
+    Write-Log -Type INF -Message "###################################################################"
+    Write-Log -Type INF -Message "#                                                                 #"
+    Write-Log -Type INF -Message "#  REPORT ONLY MODE DETECTED!  Sending results to log and CSV...  #"
+    Write-Log -Type INF -Message "#                                                                 #"
+    Write-Log -Type INF -Message "###################################################################"
+    if (!(Test-Path -Path $ReportFilePath)) {
+        New-Item -Path $ReportFilePath -Force *> $null
+    }
+    Add-Content -Path $ReportFilePath -Value "Username,Address,Action"
+    if ($OnboardCandidates) {
+        Write-Log -Type INF -Message "The following [$($OnboardCandidates.Count)] account(s) have been identified for on-boarding:"
+        foreach ($candidate in $OnboardCandidates) {
+            Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding"
+        }
+    }
+    else {
+        Write-Log -Type INF -Message "No accounts have been identified for on-boarding"
+    }
+
+    if ($OffboardCandidates) {
+        Write-Log -Type INF -Message "The following [$($OffboardCandidates.Count)] account(s) have been identified for off-boarding:"
+        foreach ($candidate in $OffboardCandidates) {
+            Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding"
+        }
+    }
+    else {
+        Write-Log -Type INF -Message "No accounts have been identified for off-boarding"
+    }
+
+    if ($IgnoreList) {
+        Write-Log -Type INF -Message "The following [$($ignoreList.Count)] endpoint(s) were ignored as they were unresolved via DNS:"
+        foreach ($comp in $ignoreList) {
+            Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
+            Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored"
+        }
+    }
+    else {
+        Write-Log -Type INF -Message "No endpoints have been ignored"
+    }
+    Write-Log -Type INF -Message "###################################################################"
+}
+
 #endregion
 
 ################################################### SCRIPT ENTRY POINT ##################################################
@@ -1164,254 +1498,24 @@ try {
 
     #Get all EPM Computers
     $EPMSessionInfo = Invoke-APIAuthentication -App EPM
-    $unqualifiedComps = Get-EPMComputers -SessionToken $EPMSessionInfo.EPMAuthenticationResult -ManagerURL $EPMSessionInfo.ManagerURL
+    $EPMEndpoints, $ignoreList = Get-EPMComputers -SessionToken $EPMSessionInfo.EPMAuthenticationResult -ManagerURL $EPMSessionInfo.ManagerURL
 
-    #Fully-qualify all EPM Computers via DNS if ValidateDomainDNSNames is set (dynamic), otherwise via EndpointDomainNames (static)
-    $qualifiedComps = @()
-    $ignoreList = @()
-    if ($ValidateDomainNamesDNS) {
-        Write-Log -Type INF -Message "Attempting to qualify all Windows EPM computers via dynamic DNS domain name lookup..."
-        $countDNSIssues = 0
-        foreach ($comp in $unqualifiedComps) {
-            if ($comp.Platform -eq "MacOS") {
-                $qualifiedComps += $comp
-                continue
-            }
-            $dnsNameFound = $false
-            foreach ($domainName in $EndpointDomainNames) {
-                try {
-                    Resolve-DnsName -Name ($comp.ComputerName + "." + $domainName) -ErrorAction Stop *> $null
-                    $qualifiedComps += [PSCustomObject]@{
-                        ComputerName = ($comp.ComputerName + "." + $domainName)
-                        Platform = $comp.Platform
-                    }
-                    $dnsNameFound = $true
-                    break
-                }
-                catch {
-                    if ($_.Exception.Message -match "DNS name does not exist") {
-                        $Error.Clear()
-                        continue
-                    }
-                    else {
-                        Write-Log -Type WRN -Message "Potential issue with DNS resolution, skipping candidacy for [$($comp.ComputerName)] --> $($_.Exception.Message)"
-                        $countDNSIssues++
-                        $ignoreList += $comp
-                        if ($countDNSIssues -ge $MaximumDNSFailures) {
-                            Write-Log -Type ERR -Message "Maximum general DNS failures reached [$maxDNSIssues]."
-                            throw
-                        }
-                        $Error.Clear()
-                        continue
-                    }
-                }
-            }
-            if (!$dnsNameFound) {
-                if ($SkipIfNotInDNS) {
-                    Write-Log -Type WRN -Message "Domain name not found for [$($comp.ComputerName)], skipping candidacy per the configuration"
-                    $ignoreList += $comp
-                    continue
-                }
-                $qualifiedComps += $comp
-            }
-        }
-    }
-    else {
-        if ($EndpointDomainNames) {
-            Write-Log -Type INF -Message "Qualifying all Windows EPM computers with provided domain name [$EndpointDomainNames]..."
-            foreach ($comp in $unqualifiedComps) {
-                if ($comp.Platform -eq "MacOS") {
-                    $qualifiedComps += $comp
-                    continue
-                }
-                $qualifiedComps += [PSCustomObject]@{
-                    ComputerName = ($comp.ComputerName + "." + $EndpointDomainNames)
-                    Platform = $comp.Platform
-                }
-            }
-        }
-        else {
-            Write-Log -Type INF -Message "Treating all EPM computer names as having no domain name given no EndpointDomainName is defined"
-            $qualifiedComps = $unqualifiedComps
-        }
-    }
-    Write-Log -Type INF -Message "EPM computer qualification complete"
-    
     #Determine onboarding candidates
-    $onboardCandidates = @()
-    Write-Log -Type INF -Message "Determining onboarding candidates..."
-    foreach ($comp in $qualifiedComps) {
-        $compExistsInPAM = $false
-        $potentialOnboardCandidates = @()
-        foreach ($account in $PAMAccounts) {
-            if ($account.address -match "^$($comp.ComputerName)$") {
-                $compExistsInPAM = $true
-                $potentialOnboardCandidates += $account
-            }
-        }
-        if (!$compExistsInPAM) {
-            $usernameList = @()
-            switch ($comp.Platform) {
-                "Windows" { $usernameList = $EndpointUserNamesWin}
-                "MacOS" { $usernameList = $EndpointUserNamesMac}
-            }
-
-            foreach ($username in $usernameList) {
-                $onboardCandidates += [PSCustomObject]@{
-                    Username = $username
-                    Address = $comp.ComputerName
-                    Platform = $comp.Platform
-                }
-            }
-            continue
-
-
-        }
-
-        $usernameList = @()
-        switch ($comp.Platform) {
-            "Windows" { $usernameList = $EndpointUserNamesWin}
-            "MacOS" { $usernameList = $EndpointUserNamesMac}
-        }
-        foreach ($username in $usernameList) {
-            $userNameExistsInPAM = $false
-            foreach ($account in $potentialOnboardCandidates) {
-                if ($account.userName -match "^$username$") {
-                    $userNameExistsInPAM = $true
-                    break
-                }
-            }
-            if (!$userNameExistsInPAM) {
-                $onboardCandidates += [PSCustomObject]@{
-                    Username = $username
-                    Address = $comp.ComputerName
-                    Platform = $comp.Platform
-                }
-            }
-        }
-    }
-    Write-Log -Type INF -Message "[$($onboardCandidates.Count)] account(s) identified for on-boarding"
+    [PSObject[]]$onboardCandidates = Get-OnBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
 
     #Determine offboarding candidates
-    $offboardCandidates = @()
-    Write-Log -Type INF -Message "Determining offboarding candidates..."
-    foreach ($account in $PAMAccounts) {
-        $skipAccount = $false
-        foreach ($comp in $ignoreList) {
-            if ($account.address -match "^$($comp.ComputerName).*$") {
-                $skipAccount = $true
-                break
-            }
-        }
-        if ($skipAccount) {
-            continue
-        }
-        $validAccount = $false
-        foreach ($comp in $qualifiedComps) {
-            if ($account.address -match "^$($comp.ComputerName)$") {
-                $usernameList = @()
-                switch ($comp.Platform) {
-                    "Windows" { $usernameList = $EndpointUserNamesWin}
-                    "MacOS" { $usernameList = $EndpointUserNamesMac}
-                }
-                foreach ($username in $usernameList) {
-                    if ($account.userName -match "^$username$") {
-                        $validAccount = $true
-                        break
-                    }
-                }
-                break
-            }
-        }
-        if (!$validAccount) {
-            $offboardCandidates += $account
-        }
-    }
-    Write-Log -Type INF -Message "[$($offboardCandidates.Count)] account(s) identified for off-boarding"
+    [PSObject[]]$offboardCandidates = Get-OffBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints -IgnoreList $ignoreList
 
+    #Printing report if in Report-Only mode, then exiting
     if ($ReportOnlyMode) {
-        Write-Log -Type INF -Message "###################################################################"
-        Write-Log -Type INF -Message "#                                                                 #"
-        Write-Log -Type INF -Message "#  REPORT ONLY MODE DETECTED!  Sending results to log and CSV...  #"
-        Write-Log -Type INF -Message "#                                                                 #"
-        Write-Log -Type INF -Message "###################################################################"
-        if (!(Test-Path -Path $ReportFilePath)) {
-            New-Item -Path $ReportFilePath -Force *> $null
-        }
-        Add-Content -Path $ReportFilePath -Value "Username,Address,Action"
-        if ($onboardCandidates) {
-            Write-Log -Type INF -Message "The following [$($onboardCandidates.Count)] account(s) have been identified for on-boarding:"
-            foreach ($candidate in $onboardCandidates) {
-                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding"
-            }
-        }
-        else {
-            Write-Log -Type INF -Message "No accounts have been identified for on-boarding"
-        }
-
-        if ($offboardCandidates) {
-            Write-Log -Type INF -Message "The following [$($offboardCandidates.Count)] account(s) have been identified for off-boarding:"
-            foreach ($candidate in $offboardCandidates) {
-                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding"
-            }
-        }
-        else {
-            Write-Log -Type INF -Message "No accounts have been identified for off-boarding"
-        }
-
-        if ($ignoreList) {
-            Write-Log -Type INF -Message "The following [$($ignoreList.Count)] endpoint(s) were ignored as they were unresolved via DNS:"
-            foreach ($comp in $ignoreList) {
-                Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
-                Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored"
-            }
-        }
-        else {
-            Write-Log -Type INF -Message "No endpoints have been ignored"
-        }
-        Write-Log -Type INF -Message "###################################################################"
+        Write-PAMLifecycleReport -OnboardCandidates $onboardCandidates -OffboardCandidates $offboardCandidates -IgnoreList $ignoreList
         exit
     }
 
     #Onboarding Accounts to PAM
-
     if ($onboardCandidates) {
         if (!$SkipOnBoarding) {
-            $onboardedTotal = 0
-            Write-Log -Type INF -Message "###########################################"
-            Write-Log -Type INF -Message "#                                         #"
-            Write-Log -Type INF -Message "# BEGIN ON-BOARDING ALL CANDIDATES TO PAM #"
-            Write-Log -Type INF -Message "#                                         #"
-            Write-Log -Type INF -Message "###########################################"
-            foreach ($account in $onboardCandidates) {
-                try {
-                    $params = @{
-                        SessionToken = $PAMSessionToken
-                        UserName = $account.UserName
-                        Address = $account.Address
-                    }
-                    switch($account.Platform) {
-                        "Windows" { $params.Add("PlatformId", $OnboardingPlatformIdWin); $params.Add("Safe", $OnboardingSafeWin) }
-                        "MacOS" { $params.Add("PlatformId", $OnboardingPlatformIdMac); $params.Add("Safe", $OnboardingSafeMac) }
-                    }
-                   Add-PAMAccount @params
-                   $onboardedTotal++
-                }
-                catch {
-                    #TODO: Add to fail report?
-                    #Treating as non-fatal, clearing $Error and continuing
-                    $Error.Clear()
-                    continue
-                }
-            }
-            Write-Log -Type INF -Message "###############################"
-            Write-Log -Type INF -Message "#                             #"
-            Write-Log -Type INF -Message "# ON-BOARDING TO PAM COMPLETE #"
-            Write-Log -Type INF -Message "#                             #"
-            Write-Log -Type INF -Message "###############################"
-            Write-Log -Type INF -Message "[$onboardedTotal] of [$($onboardCandidates.Count)] accounts were successfully on-boarded"
+            Add-PAMAccounts -SessionToken $PAMSessionToken -AccountList $onboardCandidates
         }
         else {
             Write-Log -Type WRN -Message "Skipping on-boarding activity per solution configuration"
@@ -1421,36 +1525,7 @@ try {
     #Offboarding Accounts from PAM
     if ($offboardCandidates) {
         if (!$SkipOffBoarding) {
-            $offboardTotal = 0
-            Write-Log -Type INF -Message "##############################################"
-            Write-Log -Type INF -Message "#                                            #"
-            Write-Log -Type INF -Message "# BEGIN OFF-BOARDING ALL CANDIDATES FROM PAM #"
-            Write-Log -Type INF -Message "#                                            #"
-            Write-Log -Type INF -Message "##############################################"
-            foreach ($account in $offboardCandidates) {
-                try {
-                    $parms = @{
-                        SessionToken = $PAMSessionToken
-                        UserName = $account.UserName
-                        Address = $account.Address
-                        AccountId = $account.id
-                    }
-                   Remove-PAMAccount @parms
-                   $offboardTotal++
-                }
-                catch {
-                    #TODO: Add to fail report?
-                    #Treating as non-fatal, clearing $Error and continuing
-                    $Error.Clear()
-                    continue
-                }
-            }
-            Write-Log -Type INF -Message "##################################"
-            Write-Log -Type INF -Message "#                                #"
-            Write-Log -Type INF -Message "# OFF-BOARDING FROM PAM COMPLETE #"
-            Write-Log -Type INF -Message "#                                #"
-            Write-Log -Type INF -Message "##################################"
-            Write-Log -Type INF -Message "[$offboardTotal] of [$($offboardCandidates.Count)] accounts were successfully off-boarded"
+            Remove-PAMAccounts -SessionToken $PAMSessionToken -AccountList $offboardCandidates
         }
         else {
             Write-Log -Type WRN -Message "Skipping off-boarding activity per solution configuration"
