@@ -1,0 +1,1483 @@
+<#
+.SYNOPSIS
+CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD).
+Latest solution and full README are available at https://github.com/cgeneske/CyberArkEPMLCDLifecycle 
+
+.DESCRIPTION
+This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management
+subjects that exist in PAM, automatically determining and executing the needed onboarding and offboarding actions in PAM, to maintain parity.
+As new agents come online in EPM, named local accounts will be on-boarded to PAM.  Likewise as agents are pruned from EPM through organic 
+inactivity-based attrition, their named local accounts will be off-boarded from PAM.
+
+
+Key Features:
+
+- Complete lifecycle management (on-boarding and off-boarding) for named local accounts in PAM that are based on [EPM] LCD
+- Supports separate on-boarding Safes for staging Mac and Windows accounts
+- Flexible Safe and Platform scoping for continuous lifecycle candidacy - LCD accounts can move from Staging Safes or Platforms during their lifespan
+- Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with heterogeneous domain memberships
+- Designed to be run interactively or via Scheduled Task, from a centralized endpoint that has access to the PAM and EPM APIs
+- No hard-coded secrets!  Supports CyberArk Central Credential Provider (CCP) and Windows Credential Manager for secure retrieval of the needed API credentials
+- Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication types
+- Non-invasive Report-Only mode, useful for determining which accounts are candidates for on-boarding to, or off-boarding from, PAM, prior to go-live
+
+
+Requirements:
+
+- CyberArk Privilege Access Management (PAM) v11.3+ OR Privilege Cloud (Standard/Standalone) [PAM-SaaS]
+- CyberArk Endpoint Privilege Management (EPM) SaaS
+- A CyberArk PAM API user credential for running the automation
+- A CyberArk EPM API user credential for running the automation
+
+
+Script Variables (User-Defined):
+
+ReportOnlyMode          - When set to "$true" will report in console, log, and CSV, which accounts would be on-boarded to, and/or off-boarded from, PAM.  
+                          This is a read-only run mode!
+
+SkipOnBoarding          - When set to "$true" will skip the on-boarding logic.
+
+SkipOffBoarding         - When set to "$true" will skip the off-boarding logic.
+
+EndpointUserNamesWin    - List of one or more usernames to lifecycle manage for all Windows-based EPM endpoints.
+
+EndpointUserNamesMac    - List of one or more usernames to lifecycle manage for all Mac-based EPM endpoints.
+
+EndpointDomainNames     - List of one or more DNS domain names that EPM endpoints have membership to.  
+                          Applicable only for Windows endpoints as Mac endpoints are assumed to have no domain name.  
+                          Used with the "ValidateDomainNamesDNS" and "SkipIfNotInDNS" -- See below for complete info on these variables
+                            - If "ValidateDomainNamesDNS" is set to "$false", "EndpointDomainNames" must be set to a single domain name or empty (i.e. "").  
+                            - If "ValidateDomainNamesDNS" is set to "$true", "EndpointDomainNames" may remain empty, contain a single domain name, or 
+                              contain multiple domain names.  
+                            - If "ValidateDomainNamesDNS" is set to "$true" and "EndpointDomainNames" is empty, the DNS Client's Suffix Search List 
+                              will be used.
+
+                          Valid Examples / Scenarios:
+
+                          Disable Domain Name resolution via DNS and consider all EPM endpoints as having a standard domain-name of "cybr.com"
+                            $EndpointDomainNames = "cybr.com"
+                            $ValidateDomainNamesDNS = $false
+
+                          Disable Domain Name resolution via DNS and consider all EPM endpoints as having no domain name
+                            $EndpointDomainNames = ""
+                            $ValidateDomainNamesDNS = $false
+                          
+                          Enable Domain Name resolution via DNS and consider EPM endpoints WILL have membership in one of several possible domain names
+                          (will skip candidacy if unable to resolve in DNS)
+                            $EndpointDomainNames = @("cybr.com", "childA.cybr.com", "childB.cybr.com")
+                            $ValidateDomainNamesDNS = $true
+                            $SkipIfNotInDNS = $true
+
+                          Enable Domain Name resolution via DNS and consider EPM endpoints MAY have membership in one of several possible domain names
+                          or are otherwise domain-less (Will assume no domain name for candidacy, if unable to resolve in DNS)
+                            $EndpointDomainNames = @("cybr.com", "childA.cybr.com", "childB.cybr.com")
+                            $ValidateDomainNamesDNS = $true
+                            $SkipIfNotInDNS = $false
+
+OnboardingPlatformIdWin - Platform ID for the platform to use when on-boarding Windows LCD accounts.
+
+OnboardingPlatformIdMac - Platform ID for the platform to use when on-boarding Mac LCD accounts.
+
+OnboardingSafeWin       - The CyberArk Safe name that Windows LCD accounts will be on-boarded into.
+
+OnboardingSafeMac       - The CyberArk Safe name that Mac LCD accounts will be on-boarded into.
+
+LCDPlatformSearchRegex  - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be 
+                          considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, 
+                          for running multiple script processes against different EPM sets (each associated with a different DNS domain).  
+                          In most situations the default value of ".*" will be sufficient.
+
+SafeSearchList          - List of CyberArk Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.
+                          May be left empty (i.e. "") to search all safes.  NOTE: The PAM API user's permissions will also dictate which Safes
+                          can and will be searched!
+
+EPMSetIDs               - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
+
+PAMHostname             - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "customer.privilegecloud.cyberark.com")
+
+IgnoreSSLCertErrors     - When set to "$true" will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection.
+                          It is recommended to leave this value as "$false" to ensure certificates are verified!
+
+ValidateDomainNamesDNS  - When set to "$true" will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
+                          Used with "EndpointDomainNames" (See entry above for more details).
+                          Used with "SkipIfNotInDNS" (See entry below for more details).
+
+SkipIfNotInDNS          - When set to "$true" will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to "$false",
+                          endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.
+                          Only used when "ValidateDomainNamesDNS" is set to $true, otherwise this can be ignored.
+
+APIUserSource           - Determines the source for PAM and EPM API credential lookup.  There are two possible settings:
+
+                          [APIUserSource]::WinCredMgr  - Will use the Windows Credential Manager for API credential lookup
+                          [APIUserSource]::CyberArkCCP - Will use CyberArk Central Credential Provider for API credential lookup
+
+                          CyberArk CCP is generally recommended wherein available, as this simplifies solution setup and allows for regular 
+                          credential rotation for the API users without the need to update any configuration points on the solution's host.
+
+PAMCredTarget           - The "Internet or network address" value that was used when entering the PAM API credential into Windows Credential Manager.
+                          Used with an APIUserSource of "[APIUserSource]::WinCredMgr", otherwise this can be ignored.
+
+EPMCredTarget           - The "Internet or network address" value that was used when entering the EPM API credential into Windows Credential Manager.
+                          Used with an APIUserSource of "[APIUserSource]::WinCredMgr", otherwise this can be ignored.
+
+CCPAuthType             - Determines the authentication type against CCP when used as the API user source.  There are three possible settings:
+
+                          [CCPAuthType]::OSUser          - **RECOMMENDED** Will use OS User (Integrated Windows Authentication) to authenticate to the CCP
+                          [CCPAuthType]::Certificate     - **RECOMMENDED** Will use Client Certificate to authenticate to the CCP
+                          [CCPAuthType]::AllowedMachines - Will depend solely upon an allowed machines listing in CyberArk for authentication
+
+                          NOTE:  Allowed Machines authentication may be layered on to OSUser or Certificate based authentication in the CyberArk configuration
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+CertThumbprint          - The SHA1 thumbprint of the client certificate to use for authentication to CCP.
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", and with a CCPAuthType of "[CCPAuthType]::Certificate", 
+                          otherwise this can be ignored.
+
+PAMAccountName          - The account name (aka object name) of the vaulted account that represents the PAM API credential.
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+PAMObjectSafe           - The Safe where the vaulted account that represents the PAM API credential is held in CyberArk.
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+EPMAccountName          - The account name (aka object name) of the vaulted account that represents the EPM API credential.
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+EPMObjectSafe           - The Safe where the vaulted account that represents the EPM API credential is held in CyberArk.
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+CCPHostname             - The base hostname of the CyberArk CCP (i.e. "ccp.cybr.com")
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+CCPPort                 - The port number for the CyberArk CCP listener (i.e. 443)
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+CCPServiceRoot          - The IIS application/service root that should be used for the web call to CCP (i.e. AIMWebService)
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+CCPAppID                - The Application ID registered in CyberArk that should be used identification to CCP
+                          Used with an APIUserSource of "[APIUserSource]::CyberArkCCP", otherwise this can be ignored.
+
+.EXAMPLE
+CyberArkLCDLifecycle_Centralized.ps1
+
+.INPUTS
+None
+
+.OUTPUTS
+None
+
+.NOTES
+AUTHOR:
+Craig Geneske
+
+VERSION HISTORY:
+1.0 7/26/2023 - Initial Release
+
+DISCLAIMER:
+This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
+#>
+
+################################################### SCRIPT VARIABLES ####################################################
+#region Script Variables
+
+###############################
+### BEGIN CHANGE-ME SECTION ###
+###############################
+
+#Run Mode Options
+$ReportOnlyMode = $true
+$SkipOnBoarding = $false
+$SkipOffBoarding = $false
+
+#General Environment Details
+$EndpointUserNamesWin = @("Administrator", "X_Admin")
+$EndpointUserNamesMac = "root"
+$EndpointDomainNames = ""
+$OnboardingPlatformIdWin = "WinLooselyDevice"
+$OnboardingPlatformIdMac = "MACLooselyDevice"
+$OnboardingSafeWin = "EPM LCD Staging"
+$OnboardingSafeMac = "EPM LCD Staging"
+$LCDPlatformSearchRegex = ".*"
+$SafeSearchList = ""
+$EPMSetIDs = ""
+$PAMHostname = "pam.cybr.com"
+$IgnoreSSLCertErrors = $false
+
+#Dynamic FQDN Lookup Options
+$ValidateDomainNamesDNS = $true
+$SkipIfNotInDNS = $false 
+
+#Source for PAM and EPM API credentials
+$APIUserSource = [APIUserSource]::CyberArkCCP 
+
+#Populate When API User Source is [APIUserSource]::WinCredMgr
+$PAMCredTarget = "EPM_Lifecycle_PAMAPI"
+$EPMCredTarget = "EPM_Lifecycle_EPMAPI"
+
+#Populate when API User Source is [APIUserSource]::CyberArkCCP
+$CCPAuthType = [CCPAuthType]::Certificate
+$CertThumbprint = "b88baf191dc7157775fda5fdd1d2b37f762154fd"
+$PAMAccountName = "lifecycle_pam_api.pass"
+$PAMObjectSafe = "EPM Lifecycle API"
+$EPMAccountName = "lifecycle_epm_api.pass"
+$EPMObjectSafe = "EPM Lifecycle API"
+$CCPHostname = "pam.cybr.com"
+$CCPPort = 443
+$CCPServiceRoot = "AIMWebService"
+$CCPAppID = "EPM LCD Lifecycle"
+
+#############################
+### END CHANGE-ME SECTION ###
+#############################
+
+$LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
+$ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
+
+$PAMPageSize = 500
+$EPMPageSize = 2500
+$MaximumDNSFailures = 10
+
+$PAMBaseURI = "https://$PAMHostname/PasswordVault"
+
+$PAMAuthLogonUrl = $PAMBaseURI + "/api/auth/CyberArk/Logon"
+$PAMAuthLogoffUrl = $PAMBaseURI + "/api/auth/Logoff"
+$PAMAccountsUrl = $PAMBaseURI + "/api/Accounts"
+$PAMPlatformsUrl = $PAMBaseURI + "/api/Platforms"
+
+$EPMAuthLogonUrl = "https://login.epm.cyberark.com/EPM/API/Auth/EPM/Logon"
+$EPMSetsListUrl = "/EPM/API/Sets"
+$EPMComputersUrl = "/EPM/API/Sets/{0}/Computers"
+
+#endregion
+
+################################################### ENUM DECLARATIONS ###################################################
+#region Enums
+
+enum APIUserSource {
+    WinCredMgr
+    CyberArkCCP
+}
+
+enum CCPAuthType {
+    OSUser
+    Certificate
+    AllowedMachines
+}
+
+#endregion
+
+#################################################### LOADING TYPES ######################################################
+#region Loading Types
+
+#Used for URL safe encoding within System.Web.HttpUtility
+Add-Type -AssemblyName System.Web -ErrorAction Stop 
+
+#Used for ignoring SSL Certificate errors if so specified in script variables - Technique to remain compatible with PowerShell version 5 and below
+if (!("CACertValidation" -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+public static class CACertValidation {
+    public static bool IgnoreSSLErrors(object sender,
+        X509Certificate certificate,
+        X509Chain chain,
+        SslPolicyErrors sslPolicyErrors) { return true; }
+
+    public static RemoteCertificateValidationCallback GetDelegate() {
+        return new RemoteCertificateValidationCallback(CACertValidation.IgnoreSSLErrors);
+    }
+}
+"@
+}
+
+#Used for accessing the Microsoft Windows Credential Manager via WinAPI (advapi32.dll)
+if (!("CredManager.Utility" -as [type])) {
+    Add-Type -TypeDefinition @"
+using System.Text;
+using System;
+using System.Runtime.InteropServices;
+
+namespace CredManager {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CredentialMem {
+        public int flags;
+        public int type;
+        public string targetName;
+        public string comment;
+        public System.Runtime.InteropServices.ComTypes.FILETIME lastWritten;
+        public int credentialBlobSize;
+        public IntPtr credentialBlob;
+        public int persist;
+        public int attributeCount;
+        public IntPtr credAttribute;
+        public string targetAlias;
+        public string userName;
+    }
+
+    public class Credential {
+        public string target;
+        public string username;
+        public string password;
+        public Credential(string target, string username, string password) {
+            this.target = target;
+            this.username = username;
+            this.password = password;
+        }
+    }
+
+    public class Utility {
+        [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
+
+        [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = true)]
+        private static extern bool CredFree([In] IntPtr credentialBufferPtr);
+
+        public static Credential GetUserCredential(string target) {
+            CredentialMem credMem;
+            IntPtr credPtr;
+            bool credIsRead;
+            int lastError;
+            
+            credIsRead = CredRead(target, 1, 0, out credPtr);
+            lastError = Marshal.GetLastWin32Error();
+            try {
+                if (credIsRead) {
+                    credMem = Marshal.PtrToStructure<CredentialMem>(credPtr);
+                    byte[] passwordBytes = new byte[credMem.credentialBlobSize];
+                    Marshal.Copy(credMem.credentialBlob, passwordBytes, 0, credMem.credentialBlobSize);
+                    Credential cred = new Credential(credMem.targetName, credMem.userName, Encoding.Unicode.GetString(passwordBytes));
+                    return cred;
+                }
+                else {
+                    string reason = String.Format("[{0}] - An unknown error occured", lastError);
+
+                    if (lastError == 1168) {
+                        reason = String.Format("[ERROR_NOT_FOUND] - No credential exists with the specified target name of \'{0}\'", target);
+                    }
+
+                    if (lastError == 1312) {
+                        reason = "[ERROR_NO_SUCH_LOGON_SESSION] - The logon session does not exist or there is no credential set associated with this logon session";
+                    }
+
+                    throw new Exception(String.Format("Failed to retrieve credentials - {0}", reason));
+                }
+            }
+            finally {
+                if(!credPtr.Equals(IntPtr.Zero)) {
+                    CredFree(credPtr);
+                }
+            } 
+        }
+    }
+}
+"@
+}
+
+#endregion
+
+################################################# FUNCTION DECLARATIONS #################################################
+#region Function Declarations
+
+Function Write-Log {
+    <#
+    .SYNOPSIS
+        Writes a consistently formatted log entry to stdout and a log file
+    .DESCRIPTION
+        This function is designed to provide a way to consistently format log entries and extend them to
+        one or more desired outputs (i.e. stdout and/or a log file).  Each log entry consists of three main
+        sections:  Date/Time, Event Type, and the Event Message.  This function is also extended to output
+        a standard header during script invocation and footer at script conclusion.
+    .PARAMETER Type
+        Sets the type of event message to be output.  This must be a member of the defined ValidateSet:
+        INF [Informational], WRN [Warning], ERR [Error].
+    .PARAMETER Message
+        The message to prepend to the log event
+    .PARAMETER Header
+        Prints the log header
+    .PARAMETER Footer
+        Prints the log footer
+    .EXAMPLE
+        [FUNCTION CALL]     : Write-Log -Type INF -Message "Account was onboarded successfully"
+        [FUNCTION RESULT]   : 02/09/2023 09:43:25 | [INF] | Account was onboarded successfully
+    .NOTES
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('INF','WRN','ERR')]
+        [string]$Type,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Message,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Header,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Footer
+    )
+
+    $eventColor = [System.Console]::ForegroundColor
+    if ($Header) {
+        if ([Environment]::UserInteractive) {
+            $eventString = @"
+###############################################################################################################################
+#                                                                                                                             #
+#                                            CyberArk EPM LCD | Lifecycle Utility                                             #
+#                                                                                                                             #
+###############################################################################################################################
+"@
+        }
+        else {
+            $eventString = ""
+        }
+
+        $eventString += "`n`n-----------------------> BEGINNING SCRIPT @ $(Get-Date -Format "MM/dd/yyyy HH:mm:ss") <-----------------------`n"
+        $eventColor = "Cyan"
+    }
+    elseif ($Footer) {
+        $eventString = "`n------------------------> ENDING SCRIPT @ $(Get-Date -Format "MM/dd/yyyy HH:mm:ss") <------------------------`n"
+        $eventColor = "Cyan"
+    }
+    else {
+        $eventString =  $(Get-Date -Format "MM/dd/yyyy HH:mm:ss") + " | [$Type] | " + $Message
+        switch ($Type){
+            "WRN" { $eventColor = "Yellow"; Break }
+            "ERR" { $eventColor = "Red"; Break }
+        }
+    }
+
+    #Console Output (Interactive)
+    Write-Host $eventString -ForegroundColor $eventColor
+
+    #Logfile Output (Non-Interactive)
+    if (!(Test-Path -Path $LogFilePath)) {
+        New-Item -Path $LogFilePath -Force *> $null
+    }
+    Add-Content -Path $LogFilePath -Value $eventString
+}
+
+Function Invoke-ParseFailureResponse {
+    <#
+    .SYNOPSIS
+        Parses the ErrorRecord from a Failed REST API call to present more user-friendly feedback
+    .DESCRIPTION
+        PAM, CCP, and EPM components will return a number of situationally common response codes and error codes.
+        The goal of this function is to provide a means of parsing those responses, in order to deliver more
+        consistent, formatted, and meaningful feedback to stdout and/or a log file.
+    .PARAMETER Component
+        The CyberArk component that is supplying the response failure.  This must be a member of the defined
+        ValidateSet: PAM, CCP, EPM
+    .PARAMETER Message
+        An optional message to prepend to the error output, providing useful context to the raw response
+    .EXAMPLE
+        Invoke-ParseFailureResponse -Component PAM -Message "A failure occurred while searching for existing accounts"
+    .NOTES
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('CCP','PAM','EPM')]
+        [string]$Component,
+
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    #Universal failure response presentation
+    $ErrorText = $null
+    if (!$ErrorRecord.ErrorDetails){
+        $ErrorText = $ErrorRecord.Exception.Message
+        if ($ErrorRecord.Exception.InnerException) {
+            $ErrorText += " --> " + $ErrorRecord.Exception.InnerException.Message
+        }
+    }
+    else{
+        $ErrorText = $ErrorRecord.ErrorDetails
+    }
+
+    switch ($Component){
+        "CCP" { 
+            #TODO - Expand for more human-readable presentation of specific error scenarios at CCP?
+            Break
+        }
+        "PAM" {
+            #TODO - Expand for more human-readable presentation of specific error scenarios at PAM?
+            Break
+         }
+         "EPM" {
+            #TODO - Expand for more human-readable presentation of specific error scenarios at EPM?
+            Break
+         }
+    }
+    Write-Log -Type ERR -Message $($Message + " --> " + $ErrorText)
+}
+
+Function Get-APICredential {
+    <#
+    .SYNOPSIS
+        Retrieves a CyberArk API credential from the configured user source
+    .DESCRIPTION
+        Retrieves a PAM or EPM API credential from the configured user source.  If the attempt is successful,
+        the credential is serialized into a simple PSObject with a Username and Password property.
+        If the attempt fails, an exception is thrown.
+    .EXAMPLE
+        $APICred = Get-APICredential -App PAM
+    .NOTES
+        Author: Craig Geneske
+
+        The following script-level variables are used:
+            - $APIUserSource
+            - $CCPAuthType
+            - $CCPHostname
+            - $CCPPort
+            - $CCPServiceRoot
+            - $PAMObjectSafe
+            - $PAMAccountName
+            - $EPMObjectSafe
+            - $EPMAccountName
+            - $CCPAppID
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('PAM','EPM')]
+        [string]$App
+    )
+
+    switch ($APIUserSource) {
+        ([APIUserSource]::CyberArkCCP) {
+            $result = $null
+            $CCPGetCredentialUrl = $null
+            
+            switch ($App) {
+                "PAM" {
+                    $CCPGetCredentialUrl = "https://$($CCPHostname):$CCPPort/$CCPServiceRoot/api/Accounts?" + `
+                    "Safe=$([System.Web.HttpUtility]::UrlEncode($PAMObjectSafe))" + `
+                    "&Object=$([System.Web.HttpUtility]::UrlEncode($PAMAccountName))" + `
+                    "&AppId=$([System.Web.HttpUtility]::UrlEncode($CCPAppID))"
+                }
+                "EPM" {
+                    $CCPGetCredentialUrl = "https://$($CCPHostname):$CCPPort/$CCPServiceRoot/api/Accounts?" + `
+                    "Safe=$([System.Web.HttpUtility]::UrlEncode($EPMObjectSafe))" + `
+                    "&Object=$([System.Web.HttpUtility]::UrlEncode($EPMAccountname))" + `
+                    "&AppId=$([System.Web.HttpUtility]::UrlEncode($CCPAppID))"
+                }
+            }
+
+            $methodArgs = @{
+                Method = "Get"
+                Uri = $CCPGetCredentialUrl
+                ContentType = "application/json"
+            }
+
+            switch ($CCPAuthType) {
+                ([CCPAuthType]::OSUser) {
+                    $methodArgs.Add("UseDefaultCredentials", $true)
+                }
+                ([CCPAuthType]::Certificate) {
+                    $cert = Get-ChildItem -Path "Cert:\LocalMachine\My" | Where-Object {$_.Thumbprint -eq $CertThumbprint}
+                    if(!$cert) {
+                        Write-Log ERR -Message "Failed to retrieve the [$App] API credential from CCP - The certificate thumbprint is invalid"
+                        throw
+                    }
+                    if(!$cert.PrivateKey) {
+                        Write-Log ERR -Message "Failed to retrieve the [$App] API credential from CCP - You do not have read access to the certificate's private key"
+                        throw
+                    }
+                    $methodArgs.Add("Certificate", $cert)
+                }
+            }
+        
+            try {
+                Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from CCP..."
+                $result = Invoke-RestMethod @methodArgs
+                Write-Log -Type INF -Message "Successfully retrieved the [$App] API credential from CCP"
+                return [PSCustomObject]@{
+                    Username = $result.Username
+                    Password = $result.Content
+                }
+            } 
+            catch {
+                Invoke-ParseFailureResponse -Component CCP -ErrorRecord $_ -Message "Failed to retrieve the [$App] API credential from CCP"
+                throw
+            }
+        }
+        ([APIUserSource]::WinCredMgr) {
+            $credTarget = $null
+            switch ($App) {
+                "PAM" {
+                    $credTarget = $PAMCredTarget
+                }
+                "EPM" {
+                    $credTarget = $EPMCredTarget
+                }
+            }
+            try {
+                Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from Windows Credential Manager..."
+                $cred = [CredManager.Utility]::GetUserCredential($credTarget)
+                Write-Log -Type INF -Message "Successfully retrieved the [$App] API credential from Windows Credential Manager"
+                return [PSCustomObject]@{
+                    Username = $cred.Username
+                    Password = $cred.Password
+                }
+            }
+            catch {
+                Write-Log -Type ERR -Message "Failed to retrieve [$App] API user details from Windows Credential Manager --> $($_.Exception.Message)"
+                throw
+            }
+        }
+        Default {
+            Write-Log -Type ERR -Message "Failed to retrieve [$App] API User details - API User Source [$APIUserSource] has not been implemented"
+            throw
+        }
+    }
+}
+
+Function Invoke-APIAuthentication {
+    <#
+    .SYNOPSIS
+        Authenticates to the CyberArk PAM or EPM APIs
+    .DESCRIPTION
+        Authenticates to the CyberArk PAM or EPM APIs via UN/PW authentication, with concurrency set true (for PAM)
+        to support parallel script executions.  If authentication succeeds, the result is returned.  If
+        authentication fails, an exception is thrown.
+    .EXAMPLE
+        $PAMSessionToken = Invoke-APIAuthentication -App PAM
+        $EPMSessionToken = Invoke-APIAuthentication -App EPM
+    .NOTES
+        The following script-level variables are used: 
+            - $PAMAuthLogonUrl
+            - $EPMAuthLogonUrl
+            - $
+        
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('PAM','EPM')]
+        [string]$App
+    )
+
+    $APICred = $null
+    $APIAuthUrl = $null
+    $postBody = $null
+
+    switch ($App) {
+        "PAM" {
+            $APIAuthUrl = $PAMAuthLogonUrl
+            $APICred = Get-APICredential -App PAM
+            $postBody = @{
+                concurrentSession = $true 
+            }
+        }
+        "EPM" {
+            $APIAuthUrl = $EPMAuthLogonUrl
+            $APICred = Get-APICredential -App EPM
+            $postBody = @{
+                ApplicationID = "EPM LCD Lifecycle"
+            }
+        }
+    }
+
+    $postBody.Add("Username", $APICred.Username)
+    $postBody.Add("Password", $APICred.Password)
+    $postBody = $postBody | ConvertTo-Json
+    
+    try {
+        Write-Log -Type INF -Message "Attempting to authenticate to [$App] API..."
+        $result = Invoke-RestMethod -Method Post -Uri $APIAuthUrl -Body $postBody -ContentType "application/json"
+        Write-Log -Type INF -Message "Successfully authenticated to [$App] API"
+        $APICred = $null
+        $postBody = $null
+        return $result
+    }
+    catch {
+        Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API"
+        $APICred = $null
+        $postBody = $null
+        throw
+    } 
+}
+
+Function Invoke-APILogoff {
+    <#
+    .SYNOPSIS
+        Executes logoff from the CyberArk PAM API
+    .DESCRIPTION
+        Logoff from the CyberArk PAM API, removing the Vault session.  This as an explicit step is 
+        important for immediately freeing the session, when API concurrency is in effect
+    .PARAMETER SessionToken
+        Session token that was received from the PVWA Logon endpoint
+    .EXAMPLE
+        Invoke-APILogoff -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...."
+    .NOTES
+        The following script-level parameteres are used:
+            - $PAMAuthLogoffUrl
+
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionToken
+    )
+    try {
+        Write-Log -Type INF -Message "Attempting to logoff PAM API..."
+        Invoke-RestMethod -Method Post -Uri $PAMAuthLogoffUrl -Headers @{ Authorization = $SessionToken} *> $null
+        Write-Log -Type INF -Message "PAM API logoff was successful"
+    } 
+    catch {
+        Write-Log -Type WRN -Message "Unable to logoff PAM API - $($_.Exception.Message)"
+    }
+}
+
+Function Get-PAMActiveLCDPlatforms {
+    <#
+    .SYNOPSIS
+        Gets all Active LCD derived platforms from PAM.
+    .DESCRIPTION
+        Gets all Active LCD derived platforms from PAM, and returns all platform IDs in a list of string.
+    .PARAMETER SessionToken
+        Session token that was received from the PAM Logon endpoint
+    .EXAMPLE
+        Get-PAMLCDPlatforms -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...."
+    .NOTES
+        The following script-level variables are used:
+            - $PAMPlatformsUrl
+
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionToken
+    )
+    $result = $null
+    $platformList = @()
+    $finalUrl = $PAMPlatformsUrl + "?Active=True"
+
+    try {
+        Write-Log -Type INF -Message "Getting all active LCD platforms from PAM..."
+        $result = Invoke-RestMethod -Method Get -Uri $finalUrl -Headers @{Authorization = $SessionToken} -ContentType "application/json"
+        foreach ($platform in $result.Platforms) {
+            foreach ($pattern in $LCDPlatformSearchRegex) {
+                if ($platform.general.id -match $pattern -and `
+                    ($platform.general.platformBaseId -match "^WinLooselyDevice$" -or $platform.general.platformBaseId -match "^Unix$")) {
+                    $platformList += $platform.general.id
+                }
+            }
+        }
+        Write-Log -Type INF -Message "[$($platformList.Count)] active LCD platforms have been found and will be used:"
+        foreach ($platformId in $platformList) {
+            Write-Log -Type INF -Message "---> $platformId"
+        }
+        return $platformList
+    }
+    catch {
+        Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to get LCD derived platforms"
+        throw
+    }
+}
+
+Function Get-PAMLCDAccounts {
+    <#
+    .SYNOPSIS
+        Gets all accounts that are associated with an active LCD platform
+    .DESCRIPTION
+        Gets all accounts that are associated with an active LCD platform and returns as a list.
+    .PARAMETER SessionToken
+        Session token that was received from the PAM Logon endpoint
+    .PARAMETER LCDPlatformList
+        The list of LCD platforms for identifying account candidates
+    .PARAMETER SafeSearchList
+        The list of Safes the search should be conducted within.  When left blank, safe filter will be omitted
+    .EXAMPLE
+        Get-PAMLCDAccounts -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -LCDPlatformList "WinLooselyDevice","_CYBR_WindowsLooselyDevice"
+    .NOTES
+        The following script-level variables are used:
+            - $PAMAccountsUrl
+
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionToken,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$LCDPlatformList,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$SafeSearchList
+    )
+
+    $PAMAccountsList = @()
+    $result = $null
+    $pageCounter = 0
+    $accountsCounter = 0
+    $candidatesCounter = 0
+
+    if (!$SafeSearchList) {
+        $SafeSearchList = ""
+    }
+
+    try {
+        foreach ($safe in $SafeSearchList) {
+            $accountsUrl = $PAMAccountsUrl
+            if (![string]::IsNullOrEmpty($safe)) {
+                Write-Log -Type INF -Message "Getting LCD accounts in safe [$safe]..."
+                $accountsUrl = $accountsUrl + "?limit=$($PAMPageSize)&filter=safeName eq $([System.Web.HttpUtility]::UrlEncode($safe))"
+            }
+            else {
+                Write-Log -Type INF -Message "Getting LCD accounts in all safes (this may take a while)..."
+                $accountsUrl = $accountsUrl + "?limit=$($PAMPageSize)"
+            }
+            do {
+                $result = $null
+                $result = Invoke-RestMethod -Method Get -Uri $accountsUrl -Headers @{Authorization = $SessionToken} -ContentType "application/json"
+                foreach ($account in $result.value) {
+                    $accountsCounter++
+                    $isCandidate = $false
+                    foreach ($platform in $LCDPlatformList) {
+                        if ($account.platformId -eq $platform) {
+                            $isCandidate = $true
+                            break
+                        }
+                    }
+                    if ($isCandidate) {
+                        $PAMAccountsList += $account
+                        $candidatesCounter++
+                    }
+                }
+                if ($result.nextLink) {
+                    $pagecounter++
+                    if ($pageCounter % 5 -eq 0){
+                        Write-Log -Type INF -Message "---> Status Ping: [$accountsCounter] accounts processed in [$pageCounter] pages so far -- [$candidatesCounter] LCD accounts and counting"
+                    }
+                    $accountsUrl = $PAMBaseURI + "/" + $result.nextLink
+                }
+            } 
+            while ($result.nextLink)
+        }
+        Write-Log -Type INF -Message "PAM account search complete, [$candidatesCounter] LCD accounts found out of [$accountsCounter] total accounts"
+        return $PAMAccountsList
+    }
+    catch {
+        Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to get PAM accounts associated with an active LCD platform"
+        throw
+    }
+}
+
+Function Get-EPMComputers {
+    <#
+    .SYNOPSIS
+        Gets all computers from the designated EPM sets.
+    .DESCRIPTION
+        Gets all computers from the designated EPM sets and returns as a list.
+    .PARAMETER SessionToken
+        Session token that was received from the EPM Logon endpoint
+    .PARAMETER ManagerURL
+        The EPM Server URL used for CRUD APIs as received from the EPM Logon endpoint
+    .EXAMPLE
+        Get-EPMComputers -SessionToken "Caz2QE%2b%2b8uVbTecoGMBa1Dxr7h..." -ManagerURL "https://na123.epm.cyberark.com"
+    .NOTES
+        The following script-level variables are used:
+            - $EPMSetIDs
+
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionToken,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ManagerURL
+    )
+    $confirmedSets = @()
+    $EPMComputerList = @()
+    $pageCounter = 0
+    $computersCounter = 0
+    $result = $null
+
+    try{
+        Write-Log -Type INF -Message "Getting all EPM Sets..."
+        $result = Invoke-RestMethod -Method Get -Uri ($ManagerURL + $EPMSetsListUrl) -Headers @{Authorization = "basic $($SessionToken)"} -ContentType "application/json"
+        Write-Log -Type INF -Message "[$($result.SetsCount)] Sets found"
+        if ($EPMSetIDs) {
+            Write-Log -Type INF -Message "Confirming provided Set ID(s)..."
+            foreach ($providedSet in $EPMSetIDs) {
+                $matchingSet = $null
+                $isValid = $false
+                foreach ($actualSet in $result.Sets) {
+                    if ($actualSet.Id -eq $providedSet) {
+                        $isValid = $true
+                        $matchingSet = $actualSet
+                        break
+                    }
+                }
+                if ($isValid) {
+                    Write-Log -Type INF -Message "---> Set [$($actualSet.Name) {$($actualSet.Id)}] is confirmed and will be used"
+                    $confirmedSets += $matchingSet
+                }
+                else {
+                    Write-Log -Type WRN -Message "---> Set ID [$providedSet] is not confirmed and will be skipped.  Please verify your EPM API login has access to this set"
+                }
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "Using all Sets!"
+            foreach ($set in $result.Sets) {
+                Write-Log -Type INF -Message "---> Set [$($set.Name) {$($set.Id)}] is confirmed and will be used"
+                $confirmedSets += $set
+            }
+        }
+        Write-Log -Type INF -Message "Getting all EPM Computers..."
+        foreach ($set in $confirmedSets) {
+            Write-Log -Type INF -Message "---> Getting computers for set [$($set.Name) {$($set.Id)}]..."
+            $computersUri = ($ManagerURL + ($EPMComputersUrl -f $set.Id) + "?limit=$EPMPageSize")
+            $offset = 0
+            do {
+                $result = $null
+                $result = Invoke-RestMethod -Method Get -Uri $computersUri -Headers @{Authorization = "basic $($SessionToken)"} -ContentType "application/json"
+                foreach ($computer in $result.Computers) {
+                    if ($computer.Platform -ne "Unknown") {
+                        $computersCounter++
+                        $EPMComputerList += [PSCustomObject]@{
+                            ComputerName = $computer.ComputerName
+                            Platform = $computer.Platform
+                        }
+                    }   
+                }
+                if ($result.Computers.Count -eq $EPMPageSize) {
+                    $offset += $EPMPageSize
+                    $computersUri = ($ManagerURL + ($EPMComputersUrl -f $set.Id) + "?limit=$EPMPageSize&offset=$offset")
+                }
+                $pageCounter++
+                if ($pageCounter % 5 -eq 0){
+                    Write-Log -Type INF -Message "------> Status Ping: [$computersCounter] computers processed in [$pageCounter] pages so far"
+                }
+            }
+            while ($result.Computers.Count -eq $EPMPageSize)
+        }
+        Write-Log -Type INF -Message "Retrieved [$computersCounter] EPM Computers"
+        return $EPMComputerList
+    }
+    catch {
+        Invoke-ParseFailureResponse -Component "EPM" -ErrorRecord $_ -Message "Failed to get all EPM computers"
+        throw
+    }
+}
+
+Function Add-PAMAccount {
+    <#
+    .SYNOPSIS
+        Adds account to PAM via API and queues immediate change.
+    .DESCRIPTION
+        Adds account to PAM via API and queues immediate change.
+    .PARAMETER SessionToken
+        Session token that was received from the PAM Logon endpoint
+    .PARAMETER Username
+        Username of the account to onboard
+    .PARAMETER Address
+        Address of the account to onboard
+    .EXAMPLE
+        Add-PAMAccounts -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -AccountsList $List
+    .NOTES
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionToken,
+
+        [Parameter(Mandatory = $true)]
+        [string]$UserName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Address,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Safe,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PlatformID
+    )
+    try {
+        Write-Log -Type INF -Message "Onboarding account [$UserName@$Address] to PAM..."
+        $body = [PSCustomObject]@{
+            userName = $UserName
+            address = $Address
+            safeName = $Safe
+            platformId = $PlatformID
+            secretType = "password"
+        } | ConvertTo-Json
+        Invoke-RestMethod -Method Post -Uri $PAMAccountsUrl -Body $body -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+        #Invoke-RestMethod -Method Post -Uri ($PAMAccountsUrl + "/$($result.id)/Change/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+    }
+    catch {
+        Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to complete onboarding actions for [$UserName@$Address]"
+        throw
+    }
+}
+
+Function Remove-PAMAccount {
+    <#
+    .SYNOPSIS
+        Offboards account from PAM via API.
+    .DESCRIPTION
+        Offboards account from PAM via API.
+    .PARAMETER SessionToken
+        Session token that was received from the PAM Logon endpoint
+    .PARAMETER UserName
+        Username of the account being offboarded
+    .PARAMETER Address
+        Address of the account being offboarded
+    .PARAMETER AccountId
+        Internal AccountId of the account being offboarded
+    .EXAMPLE
+        Remove-PAMAccount -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -AccountId "64_3" -UserName "Administrator" -Address "Client.cybr.com"
+    .NOTES
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionToken,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$UserName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Address,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccountId
+    )
+
+    try {
+        Write-Log -Type INF -Message "Offboarding account [$AccountId - $UserName@$Address] from PAM..."
+        Invoke-RestMethod -Method Delete -Uri ($PAMAccountsUrl + "/$AccountId/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+    }
+    catch {
+        Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to off-board [$UserName@$Address - $AccountId]"
+        throw
+    }
+}
+
+Function Confirm-ScriptVariables {
+    <#
+    .SYNOPSIS
+        Confirms state and value validity for user-defined script variables.
+    .DESCRIPTION
+        Confirms state and value validity for user-defined script variables.  Throws an exception if 
+        any variables are determined to be incorrectly set.
+    .EXAMPLE
+        Confirm-ScriptVariables
+    .NOTES
+        Author: Craig Geneske
+    #>
+
+    Write-Log -Type INF -Message "Validating Script Variables..."
+
+    if ($ValidateDomainNamesDNS) {
+        if (!$EndpointDomainNames) {
+            Set-Variable -Name "EndpointDomainNames" -Scope Script -Value $((Get-DNSClientGlobalSetting).SuffixSearchList)
+            if (!$EndpointDomainNames) {
+                Write-Log -Type ERR -Message "Ambiguous operation.  ValidateDomainNamesDNS is set, but no EndpointDomainNames are specified, and DNS Client Suffix Search List is Empty"
+                throw
+            }
+        }
+    
+    }
+    else {
+        if (!($EndpointDomainNames.Count -eq 1 -or [String]::IsNullOrEmpty($EndpointDomainNames))) {
+            Write-Log -Type ERR -Message "Ambiguous operation.  ValidateDomainNamesDNS is not set and more than one EndpointDomainNames are defined"
+            throw
+        }
+    }
+
+    try {
+        foreach ($pattern in $LCDPlatformSearchRegex) {
+            [regex]::Match("", $pattern) *> $null
+        }
+    }
+    catch {
+        Write-Log -Type ERR -Message "Problem identified in LCDPlatformSearchRegex, regex pattern [$pattern] failed validation with the following result --> $($_.Exception.InnerException.Message)"
+        throw
+    }
+
+    if ($APIUserSource -isnot [APIUserSource]) {
+        Write-Log -Type ERR -Message "APIUserSource is not set to a valid value, please correct this and try again"
+        throw
+    }
+
+    if ($APIUserSource -eq [APIUserSource]::CyberArkCCP) {
+        if ($CCPAuthType -isnot [CCPAuthType]) {
+            Write-Log -Type ERR -Message "CCPAuthType is not set to a valid value, please correct this and try again"
+            throw 
+        }
+    }
+
+    Write-Log -Type INF -Message "Script Variables have been validated"
+}
+
+#endregion
+
+################################################### SCRIPT ENTRY POINT ##################################################
+
+$PAMSessionToken = $null
+$EPMSessionToken = $null
+$Error.Clear()
+
+#Print Log/Console Header
+Write-Log -Header
+
+if ($IgnoreSSLCertErrors) {
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = [CACertValidation]::GetDelegate()
+    Write-Log -Type WRN -Message "You have disabled SSL Certificate validation, this setting is NOT recommended!"
+}
+else {
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+}
+
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+try {
+    Confirm-ScriptVariables
+
+    $PAMSessionToken = Invoke-APIAuthentication -App PAM
+
+    $LCDPlatforms = Get-PAMActiveLCDPlatforms -SessionToken $PAMSessionToken
+
+    $getAccountsParams = @{
+        SessionToken = $PAMSessionToken
+        LCDPlatformList = $LCDPlatforms
+    }
+
+    if ($SafeSearchList) {
+        $getAccountsParams.Add("SafeSearchList", $SafeSearchList)
+    }
+
+    #Get all existing LCD Accounts in PAM
+    $PAMAccounts = Get-PAMLCDAccounts @getAccountsParams
+
+    #Get all EPM Computers
+    $EPMSessionInfo = Invoke-APIAuthentication -App EPM
+    $unqualifiedComps = Get-EPMComputers -SessionToken $EPMSessionInfo.EPMAuthenticationResult -ManagerURL $EPMSessionInfo.ManagerURL
+
+    #Fully-qualify all EPM Computers via DNS if ValidateDomainDNSNames is set (dynamic), otherwise via EndpointDomainNames (static)
+    $qualifiedComps = @()
+    $ignoreList = @()
+    if ($ValidateDomainNamesDNS) {
+        Write-Log -Type INF -Message "Attempting to qualify all Windows EPM computers via dynamic DNS domain name lookup..."
+        $countDNSIssues = 0
+        foreach ($comp in $unqualifiedComps) {
+            if ($comp.Platform -eq "MacOS") {
+                $qualifiedComps += $comp
+                continue
+            }
+            $dnsNameFound = $false
+            foreach ($domainName in $EndpointDomainNames) {
+                try {
+                    Resolve-DnsName -Name ($comp.ComputerName + "." + $domainName) -ErrorAction Stop *> $null
+                    $qualifiedComps += [PSCustomObject]@{
+                        ComputerName = ($comp.ComputerName + "." + $domainName)
+                        Platform = $comp.Platform
+                    }
+                    $dnsNameFound = $true
+                    break
+                }
+                catch {
+                    if ($_.Exception.Message -match "DNS name does not exist") {
+                        $Error.Clear()
+                        continue
+                    }
+                    else {
+                        Write-Log -Type WRN -Message "Potential issue with DNS resolution, skipping candidacy for [$($comp.ComputerName)] --> $($_.Exception.Message)"
+                        $countDNSIssues++
+                        $ignoreList += $comp
+                        if ($countDNSIssues -ge $MaximumDNSFailures) {
+                            Write-Log -Type ERR -Message "Maximum general DNS failures reached [$maxDNSIssues]."
+                            throw
+                        }
+                        $Error.Clear()
+                        continue
+                    }
+                }
+            }
+            if (!$dnsNameFound) {
+                if ($SkipIfNotInDNS) {
+                    Write-Log -Type WRN -Message "Domain name not found for [$($comp.ComputerName)], skipping candidacy per the configuration"
+                    $ignoreList += $comp
+                    continue
+                }
+                $qualifiedComps += $comp
+            }
+        }
+    }
+    else {
+        if ($EndpointDomainNames) {
+            Write-Log -Type INF -Message "Qualifying all Windows EPM computers with provided domain name [$EndpointDomainNames]..."
+            foreach ($comp in $unqualifiedComps) {
+                if ($comp.Platform -eq "MacOS") {
+                    $qualifiedComps += $comp
+                    continue
+                }
+                $qualifiedComps += [PSCustomObject]@{
+                    ComputerName = ($comp.ComputerName + "." + $EndpointDomainNames)
+                    Platform = $comp.Platform
+                }
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "Treating all EPM computer names as having no domain name given no EndpointDomainName is defined"
+            $qualifiedComps = $unqualifiedComps
+        }
+    }
+    Write-Log -Type INF -Message "EPM computer qualification complete"
+    
+    #Determine onboarding candidates
+    $onboardCandidates = @()
+    Write-Log -Type INF -Message "Determining onboarding candidates..."
+    foreach ($comp in $qualifiedComps) {
+        $compExistsInPAM = $false
+        $potentialOnboardCandidates = @()
+        foreach ($account in $PAMAccounts) {
+            if ($account.address -match "^$($comp.ComputerName)$") {
+                $compExistsInPAM = $true
+                $potentialOnboardCandidates += $account
+            }
+        }
+        if (!$compExistsInPAM) {
+            $usernameList = @()
+            switch ($comp.Platform) {
+                "Windows" { $usernameList = $EndpointUserNamesWin}
+                "MacOS" { $usernameList = $EndpointUserNamesMac}
+            }
+
+            foreach ($username in $usernameList) {
+                $onboardCandidates += [PSCustomObject]@{
+                    Username = $username
+                    Address = $comp.ComputerName
+                    Platform = $comp.Platform
+                }
+            }
+            continue
+
+
+        }
+
+        $usernameList = @()
+        switch ($comp.Platform) {
+            "Windows" { $usernameList = $EndpointUserNamesWin}
+            "MacOS" { $usernameList = $EndpointUserNamesMac}
+        }
+        foreach ($username in $usernameList) {
+            $userNameExistsInPAM = $false
+            foreach ($account in $potentialOnboardCandidates) {
+                if ($account.userName -match "^$username$") {
+                    $userNameExistsInPAM = $true
+                    break
+                }
+            }
+            if (!$userNameExistsInPAM) {
+                $onboardCandidates += [PSCustomObject]@{
+                    Username = $username
+                    Address = $comp.ComputerName
+                    Platform = $comp.Platform
+                }
+            }
+        }
+    }
+    Write-Log -Type INF -Message "[$($onboardCandidates.Count)] account(s) identified for on-boarding"
+
+    #Determine offboarding candidates
+    $offboardCandidates = @()
+    Write-Log -Type INF -Message "Determining offboarding candidates..."
+    foreach ($account in $PAMAccounts) {
+        $skipAccount = $false
+        foreach ($comp in $ignoreList) {
+            if ($account.address -match "^$($comp.ComputerName).*$") {
+                $skipAccount = $true
+                break
+            }
+        }
+        if ($skipAccount) {
+            continue
+        }
+        $validAccount = $false
+        foreach ($comp in $qualifiedComps) {
+            if ($account.address -match "^$($comp.ComputerName)$") {
+                $usernameList = @()
+                switch ($comp.Platform) {
+                    "Windows" { $usernameList = $EndpointUserNamesWin}
+                    "MacOS" { $usernameList = $EndpointUserNamesMac}
+                }
+                foreach ($username in $usernameList) {
+                    if ($account.userName -match "^$username$") {
+                        $validAccount = $true
+                        break
+                    }
+                }
+                break
+            }
+        }
+        if (!$validAccount) {
+            $offboardCandidates += $account
+        }
+    }
+    Write-Log -Type INF -Message "[$($offboardCandidates.Count)] account(s) identified for off-boarding"
+
+    if ($ReportOnlyMode) {
+        Write-Log -Type INF -Message "###################################################################"
+        Write-Log -Type INF -Message "#                                                                 #"
+        Write-Log -Type INF -Message "#  REPORT ONLY MODE DETECTED!  Sending results to log and CSV...  #"
+        Write-Log -Type INF -Message "#                                                                 #"
+        Write-Log -Type INF -Message "###################################################################"
+        if (!(Test-Path -Path $ReportFilePath)) {
+            New-Item -Path $ReportFilePath -Force *> $null
+        }
+        Add-Content -Path $ReportFilePath -Value "Username,Address,Action"
+        if ($onboardCandidates) {
+            Write-Log -Type INF -Message "The following [$($onboardCandidates.Count)] account(s) have been identified for on-boarding:"
+            foreach ($candidate in $onboardCandidates) {
+                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding"
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "No accounts have been identified for on-boarding"
+        }
+
+        if ($offboardCandidates) {
+            Write-Log -Type INF -Message "The following [$($offboardCandidates.Count)] account(s) have been identified for off-boarding:"
+            foreach ($candidate in $offboardCandidates) {
+                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding"
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "No accounts have been identified for off-boarding"
+        }
+
+        if ($ignoreList) {
+            Write-Log -Type INF -Message "The following [$($ignoreList.Count)] endpoint(s) were ignored as they were unresolved via DNS:"
+            foreach ($comp in $ignoreList) {
+                Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
+                Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored"
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "No endpoints have been ignored"
+        }
+        Write-Log -Type INF -Message "###################################################################"
+        exit
+    }
+
+    #Onboarding Accounts to PAM
+
+    if ($onboardCandidates) {
+        if (!$SkipOnBoarding) {
+            $onboardedTotal = 0
+            Write-Log -Type INF -Message "###########################################"
+            Write-Log -Type INF -Message "#                                         #"
+            Write-Log -Type INF -Message "# BEGIN ON-BOARDING ALL CANDIDATES TO PAM #"
+            Write-Log -Type INF -Message "#                                         #"
+            Write-Log -Type INF -Message "###########################################"
+            foreach ($account in $onboardCandidates) {
+                try {
+                    $params = @{
+                        SessionToken = $PAMSessionToken
+                        UserName = $account.UserName
+                        Address = $account.Address
+                    }
+                    switch($account.Platform) {
+                        "Windows" { $params.Add("PlatformId", $OnboardingPlatformIdWin); $params.Add("Safe", $OnboardingSafeWin) }
+                        "MacOS" { $params.Add("PlatformId", $OnboardingPlatformIdMac); $params.Add("Safe", $OnboardingSafeMac) }
+                    }
+                   Add-PAMAccount @params
+                   $onboardedTotal++
+                }
+                catch {
+                    #TODO: Add to fail report?
+                    #Treating as non-fatal, clearing $Error and continuing
+                    $Error.Clear()
+                    continue
+                }
+            }
+            Write-Log -Type INF -Message "###############################"
+            Write-Log -Type INF -Message "#                             #"
+            Write-Log -Type INF -Message "# ON-BOARDING TO PAM COMPLETE #"
+            Write-Log -Type INF -Message "#                             #"
+            Write-Log -Type INF -Message "###############################"
+            Write-Log -Type INF -Message "[$onboardedTotal] of [$($onboardCandidates.Count)] accounts were successfully on-boarded"
+        }
+        else {
+            Write-Log -Type WRN -Message "Skipping on-boarding activity per solution configuration"
+        }
+    }
+
+    #Offboarding Accounts from PAM
+    if ($offboardCandidates) {
+        if (!$SkipOffBoarding) {
+            $offboardTotal = 0
+            Write-Log -Type INF -Message "##############################################"
+            Write-Log -Type INF -Message "#                                            #"
+            Write-Log -Type INF -Message "# BEGIN OFF-BOARDING ALL CANDIDATES FROM PAM #"
+            Write-Log -Type INF -Message "#                                            #"
+            Write-Log -Type INF -Message "##############################################"
+            foreach ($account in $offboardCandidates) {
+                try {
+                    $parms = @{
+                        SessionToken = $PAMSessionToken
+                        UserName = $account.UserName
+                        Address = $account.Address
+                        AccountId = $account.id
+                    }
+                   Remove-PAMAccount @parms
+                   $offboardTotal++
+                }
+                catch {
+                    #TODO: Add to fail report?
+                    #Treating as non-fatal, clearing $Error and continuing
+                    $Error.Clear()
+                    continue
+                }
+            }
+            Write-Log -Type INF -Message "##################################"
+            Write-Log -Type INF -Message "#                                #"
+            Write-Log -Type INF -Message "# OFF-BOARDING FROM PAM COMPLETE #"
+            Write-Log -Type INF -Message "#                                #"
+            Write-Log -Type INF -Message "##################################"
+            Write-Log -Type INF -Message "[$offboardTotal] of [$($offboardCandidates.Count)] accounts were successfully off-boarded"
+        }
+        else {
+            Write-Log -Type WRN -Message "Skipping off-boarding activity per solution configuration"
+        }
+    }
+}
+catch {
+    #Nothing to do but maintaining catch block to suppress error output as this is processed and formatted further down in the call stack
+} 
+finally {
+    $returnCode = 0
+    if ($Error.Count) {
+        Write-Log -Type WRN -Message "Script execution is being interrupted, aborting"
+        $returnCode = 1
+    }
+    else {
+        Write-Log -Type INF -Message "All actions have completed successfully"
+    }
+
+    if ($PAMSessionToken) {
+        Invoke-APILogoff -SessionToken $PAMSessionToken
+        $PAMSessionToken = $null
+    }
+    if ($EPMSessionToken) {
+        $EPMSessionToken = $null
+    }
+
+    Write-Log -Footer
+    exit $returnCode
+}
