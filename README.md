@@ -142,11 +142,11 @@ A successful script execution will return with code `"0"` which will show in Tas
 
 Screenshot examples of how this task might be setup, when run under a traditional service account named here as "svc.cybr.lifecycle" can be seen below:
 
-![Example SchedTask General](images/schedtask0.png)
+![Example SchedTask General](images/schedtask0.PNG)
 
-![Example SchedTask General](images/schedtask1.png)
+![Example SchedTask General](images/schedtask1.PNG)
 
-![Example SchedTask General](images/schedtask2.png)
+![Example SchedTask General](images/schedtask2.PNG)
 
 ## Assigning Script Variables
 There are a series of script variables that must be set off default, to values that are pertinent to your executing environment.  These variables are declared in the `SCRIPT VARIABLES` region at the top of the script between the `### BEGIN CHANGE-ME SECTION ###` and `### END CHANGE-ME SECTION ###` comment markers:
