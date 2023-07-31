@@ -12,7 +12,7 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 - Designed to be run interactively or via Scheduled Task, from a central endpoint that has access to the PAM and EPM APIs (i.e. The CPM)
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
 - Flexible Safe and Platform scoping for continuous management - LCD accounts can move from Staging Safes or Platforms during their lifespan
-- Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with heterogeneous domain memberships
+- Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
 - **No hard-coded secrets!**  Supports CyberArk Central Credential Provider (CCP) and Windows Credential Manager for secure retrieval of the needed API credentials
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication types
 - Non-invasive Report-Only mode, useful for determining which accounts are candidates for on-boarding to, or off-boarding from, PAM, prior to go-live
