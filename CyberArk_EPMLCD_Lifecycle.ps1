@@ -177,6 +177,9 @@ DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
 #>
 
+#Requires -Version 5.0
+#Requires -Modules System.Web
+
 ################################################### SCRIPT VARIABLES ####################################################
 #region Script Variables
 
@@ -527,6 +530,8 @@ Function Get-APICredential {
         Retrieves a PAM or EPM API credential from the configured user source.  If the attempt is successful,
         the credential is serialized into a simple PSObject with a Username and Password property.
         If the attempt fails, an exception is thrown.
+    .PARAMETER App
+        The application to retrieve the needed credential for, must be part of the validate set (PAM or EPM)
     .EXAMPLE
         $APICred = Get-APICredential -App PAM
     .NOTES
@@ -647,14 +652,14 @@ Function Invoke-APIAuthentication {
         Authenticates to the CyberArk PAM or EPM APIs via UN/PW authentication, with concurrency set true (for PAM)
         to support parallel script executions.  If authentication succeeds, the result is returned.  If
         authentication fails, an exception is thrown.
+    .PARAMETER App
+        The application to initiate API authentication for, must be part of the validate set (PAM or EPM)
     .EXAMPLE
         $PAMSessionToken = Invoke-APIAuthentication -App PAM
-        $EPMSessionToken = Invoke-APIAuthentication -App EPM
     .NOTES
         The following script-level variables are used: 
             - $PAMAuthLogonUrl
             - $EPMAuthLogonUrl
-            - $
         
         Author: Craig Geneske
     #>
@@ -726,6 +731,7 @@ Function Invoke-APILogoff {
         [Parameter(Mandatory = $true)]
         [string]$SessionToken
     )
+
     try {
         Write-Log -Type INF -Message "Attempting to logoff PAM API..."
         Invoke-RestMethod -Method Post -Uri $PAMAuthLogoffUrl -Headers @{ Authorization = $SessionToken} *> $null
@@ -741,7 +747,7 @@ Function Get-PAMActiveLCDPlatforms {
     .SYNOPSIS
         Gets all Active LCD derived platforms from PAM.
     .DESCRIPTION
-        Gets all Active LCD derived platforms from PAM, and returns all platform IDs in a list of string.
+        Gets all Active LCD derived platforms from PAM, filtered further via optionally supplied regex, and returns all platform IDs in a list of string.
     .PARAMETER SessionToken
         Session token that was received from the PAM Logon endpoint
     .EXAMPLE
@@ -749,6 +755,7 @@ Function Get-PAMActiveLCDPlatforms {
     .NOTES
         The following script-level variables are used:
             - $PAMPlatformsUrl
+            - $LCDPlatformSearchRegex
 
         Author: Craig Geneske
     #>
@@ -756,6 +763,7 @@ Function Get-PAMActiveLCDPlatforms {
         [Parameter(Mandatory = $true)]
         [string]$SessionToken
     )
+
     $result = $null
     $platformList = @()
     $finalUrl = $PAMPlatformsUrl + "?Active=True"
@@ -786,20 +794,20 @@ Function Get-PAMActiveLCDPlatforms {
 Function Get-PAMLCDAccounts {
     <#
     .SYNOPSIS
-        Gets all accounts that are associated with an active LCD platform
+        Gets all accounts that are associated with one of the platforms in the input list.
     .DESCRIPTION
-        Gets all accounts that are associated with an active LCD platform and returns as a list.
+        Gets all accounts that are associated with one of the platforms provided in the input list, against an optional safe
+        search list, returning a list of accounts.
     .PARAMETER SessionToken
         Session token that was received from the PAM Logon endpoint
     .PARAMETER LCDPlatformList
         The list of LCD platforms for identifying account candidates
-    .PARAMETER SafeSearchList
-        The list of Safes the search should be conducted within.  When left blank, safe filter will be omitted
     .EXAMPLE
         Get-PAMLCDAccounts -SessionToken "YmNlODFhZjktNjdkMS00Yzg3LThiMDctMTAxOGMzNzU3ZWJkOzFFNj...." -LCDPlatformList "WinLooselyDevice","_CYBR_WindowsLooselyDevice"
     .NOTES
         The following script-level variables are used:
             - $PAMAccountsUrl
+            - $SafeSearchList
 
         Author: Craig Geneske
     #>
@@ -808,10 +816,7 @@ Function Get-PAMLCDAccounts {
         [string]$SessionToken,
 
         [Parameter(Mandatory = $true)]
-        [string[]]$LCDPlatformList,
-
-        [Parameter(Mandatory = $false)]
-        [string[]]$SafeSearchList
+        [string[]]$LCDPlatformList
     )
 
     $PAMAccountsList = @()
@@ -819,11 +824,7 @@ Function Get-PAMLCDAccounts {
     $pageCounter = 0
     $accountsCounter = 0
     $candidatesCounter = 0
-
-    if (!$SafeSearchList) {
-        $SafeSearchList = ""
-    }
-
+    
     try {
         foreach ($safe in $SafeSearchList) {
             $accountsUrl = $PAMAccountsUrl
@@ -900,6 +901,7 @@ Function Get-EPMComputers {
         [Parameter(Mandatory = $true)]
         [string]$ManagerURL
     )
+
     $confirmedSets = @()
     $EPMComputerList = @()
     $pageCounter = 0
@@ -1218,6 +1220,10 @@ Function Confirm-ScriptVariables {
             Write-Log -Type ERR -Message "CCPAuthType is not set to a valid value, please correct this and try again"
             throw 
         }
+    }
+
+    if (!$SafeSearchList) {
+        Set-Variable -Name "SafeSearchlist" -Scope Script -Value ""
     }
 
     Write-Log -Type INF -Message "Script Variables have been validated"

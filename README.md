@@ -23,16 +23,133 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 
 - CyberArk Privilege Access Management (PAM) v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
+- PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
+- PowerShell v5 or greater
 
-## PAM API User Permissions
->Coming Soon!
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform, there is a new capability coming soon to Privilege Cloud Discovery that will natively integrate with EPM for discovering and naturally on-boarding local accounts to be managed via LCD.  For more information on this capability, be sure to reach out to your CyberArk Account Team!
 
-## Running via Scheduled Task
->Coming Soon!
+## PAM API User Creation and Permissions
+A purpose-dedicated Vault Local User (CyberArk Authentication) should be created in PAM for use with this utility.  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
+
+No Vault level authorizations or built-in group memberships are mandatory for this user.
+
+For Safes that will be considered for existing accounts inventory and off-boarding activity, the following privileges are required:
+
+- List Accounts
+- Delete Accounts
+
+For Safes that will be considered for on-boarding activity, these being the static Windows and Mac safes named in the `$OnboardingSafeWin` and `$OnboardingSafeMac` Script Variables (See the [Assigning Script Variables](#assigning-script-variables) section below for more info), the following privileges are required:
+
+- List Accounts
+- Add Accounts
+- Update Account Properties
+- Update Account Content*
+- Initiate CPM Account Management Operations
+- Delete Accounts**
+
+>`* ` - Specifically required for un-delete scenarios<br/>
+>`**` - Required if this safe should also be considered for off-boarding
+
+## EPM API User Creation and Permissions
+A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  At this time there are limited options for creating API-dedicated logins in EPM due to the fact that logins require E-Mail activation and yet the login must also remain unique.  To overcome this limitation, the same E-Mail of an existing login may be used in the creation of a new and unique login through the following technique:
+
+Existing Login Example Email - john.doe@company.com <br/>
+New Login Example Email - john.doe+lcd_lifecycle@company.com <br/>
+
+Using a login value as in the above "new" example, would send the activation E-Mail to john.doe@company.com, without impacting the existing john.doe@company.com login.
+
+The login you create for this utility only needs marked as **"Allow to manage Sets"** along with **"View Only Set Admin"** bindings on any Sets that will be in scope for this utility.
+
+This utility does not require any modifying access to EPM.
+
+## Windows Credential Manager Considerations
+The PAM and EPM API user credentials may be retrieved from either the Windows Credential Manager or optionally, from CyberArk PAM itself via the Central Credential Provider (CCP).  This technique ensures the script remains free of any hard-coded secrets while simultaneously remaining compatible with a prompt-less, non-interactive (Scheduled Task) implementation pattern.
+
+When choosing to leverage the Windows Credential Manager, each API credential must be manually added to the Credential Manager under the user context that intends to execute the utility.  This may be your standard interactive user, or a purpose-dedicated service account that has been logged in interactively to complete these steps.
+
+>**NOTE:** The Windows Credential Manager UI allows for secure creation or update of credentials but does not provide a direct means of retrieving the clear-text credential by design.
+
+To open the Credential Manager, navigate to `Control Panel > Credential Manager` or "Run" (WinKey + R) to launch `"Control keymgr.dll"`. 
+
+![Example Run CredManager](images/credmanager0.png)
+
+Two credentials should be added, one corresponding to the PAM API, and one corresponding to the EPM API.  
+
+Each credential should be entered via `Windows Credentials > "Add a generic credential"`.
+
+![Example CredManager](images/credmanager1.png)
+
+You must populate all three fields:  
+
+- The value for field `"Internet or network address"` should be populated with the ID/label that will be assigned to the `$PAMTargetCred` or `$EPMTargetCred` script variables respectively (See the [Assigning Script Variables](#assigning-script-variables) section below).
+
+- The value for field `"User name"` should contain the actual API credential's Username value
+
+- The value for field `"Password"` should contain the actual API credential's Password value
+ 
+![Example CredManager Add](images/credmanager2.png)
+
+In the populated example shown above, if we consider this as the PAM API credential, then `$PAMCredTarget` would need to be set as follows:
+```powershell 
+$PAMCredTarget = "CYBR_Lifecycle_PAMAPI"
+```
+
+## CyberArk Central Credential Provider (CCP) Considerations
+Leveraging CyberArk PAM as the credential store for the PAM and EPM API credentials is recommended wherein available, as this allows for management of these API credentials without ever needing to modify the utility's host or the solution itself!  If you are uncertain whether you have CCP licensing or this capability established in your environment, reach out to your CyberArk account team.
+
+When leveraging CCP, a purpose-dedicated application entry should be created in CyberArk.
+
+The CCP integration with this utility supports the choice of OS User, Client Certificate or Allowed Machines authentication mechanisms to the CCP.  Allowed Machines authentication may also be implemented as an additional layer to OS User and Client Certificate authentication in the CyberArk application configuration if so desired.
+
+When implementing Client Certificate authentication, the certificate you wish to use should be installed in the local machine's personal certificate store.  Note that this utility does not need to be (and should not be) run with administrative privileges.  As a result, it may be necessary to delegate explicit permissions to the client certificate's private key for the executing context.  This may be required for a standard user when running interactively, or for a local service when implementing non-interactively via a Scheduled Task.  The script will notify you via log and console output during execution, if you lack permissions to the certificate's private key.
+
+To delegate permissions to the certificate's private key, open the local machine's certificates snap-in (certlm.msc) and do the following:
+
+1.) Right-Click on the Client Certificate and navigate to "All Tasks" > "Manage Private Keys..."
+
+2.) Add the script's executing context to the Access Control List (ACL) and grant "Read" permissions
+
+For more information on the CyberArk Central Credential Provider (CCP), please refer to CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm
+
+## Running via Scheduled Task (Non-Interactively)
+In general, the setup of a scheduled task to run this utility on a periodic basis (time based trigger) is very straight forward.   The options for the user that is assigned to run this scheduled task depends on whether the Windows Credential Manager or CyberArk PAM (CCP) is used as the store for the PAM and API credentials.
+
+When using `CyberArk PAM (CCP)` as the credential store, and when using:
+
+- `Client Certificate` (and/or Allowed Machines) Authentication
+    - The task may simply run as the `LOCAL SERVICE` account, with permissions being appropriately delegated to the client certificate's private key, as described in the section [CyberArk Central Credential Manager (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations) above.
+
+- `OS User` Authentication
+    - The task may run as a named domain (traditional) service account user, or as a Group-Managed Service Account (gMSA).
+
+When using `Windows Credential Manager` as the credential store:
+
+- The task must run as a named local or domain (traditional) service account user that has temporary means to login to the solution host interactively, in order to populate the needed Credential Manager entries.  Once the Credential Manager has been populated for the service user as described above (see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)), interactive login (both locally and via remote desktop services) may be explicitly denied for the named service account.  Batch logon (the `"Log on as a batch job"` user rights assignment) is the only logon type required for execution via Scheduled Task.
+
+The Task should be created to `"Run whether user is logged on or not"` and set to `"Do not store password"`.
+
+The Task action should be set to start a program (`"powershell.exe"`) with the following arguments:
+
+```
+-File <PATH_TO_SCRIPT_FILE>
+```
+
+An "On a Schedule" task trigger may be defined.  The task may also be run on demand.
+
+A successful script execution will return with code `"0"` which will show in Task Scheduler's last run result as `"The operation has completed successfully (0x0)"`.  Any unexpected failure of the script, will return with a code of `"-1"`
+
+>**NOTE:** There will not be any interactive console output when running this utility from a Scheduled Task.  Instead, each execution will create and populate a log file under a solution-created `"Logs"` subfolder, which will be located in the same directory that contains the solution's script file.  Refer to these log files for more details pertaining to the task's execution and any relative success or failure.
+
+Screenshot examples of how this task might be setup, when run under a traditional service account named here as "svc.cybr.lifecycle" can be seen below:
+
+![Example SchedTask General](images/schedtask0.png)
+
+![Example SchedTask General](images/schedtask1.png)
+
+![Example SchedTask General](images/schedtask2.png)
 
 ## Assigning Script Variables
-
-There are a series of script variables that must be set off default, to values that are pertinent to your executing environment.  These variables are declared in the "SCRIPT VARIABLES" region at the top of the script between the `### BEGIN CHANGE-ME SECTION ###` and `### END CHANGE-ME SECTION ###` comment markers:
+There are a series of script variables that must be set off default, to values that are pertinent to your executing environment.  These variables are declared in the `SCRIPT VARIABLES` region at the top of the script between the `### BEGIN CHANGE-ME SECTION ###` and `### END CHANGE-ME SECTION ###` comment markers:
 
 - `$ReportOnlyMode`
     - When set to `$true` will report in console, log, and CSV, which accounts would be on-boarded to, and/or off-boarded from, PAM. This is a read-only run mode!
@@ -69,8 +186,8 @@ There are a series of script variables that must be set off default, to values t
         Enable Domain Name resolution via DNS and consider EPM endpoints WILL have membership in one of several possible domain names (will skip candidacy if unable to resolve in DNS):
         ```powershell
         $EndpointDomainNames = @("cybr.com", "childA.cybr.com", "childB.cybr.com")
-        $ValidateDomainNamesDNS = $true`
-        $SkipIfNotInDNS = $true`
+        $ValidateDomainNamesDNS = $true
+        $SkipIfNotInDNS = $true
         ```
 
         Enable Domain Name resolution via DNS and consider EPM endpoints MAY have membership in one of several possible domain names or are otherwise domain-less (Will assume no domain name for candidacy, if unable to resolve in DNS):
@@ -89,7 +206,7 @@ There are a series of script variables that must be set off default, to values t
 - `$OnboardingSafeMac`
     - The CyberArk Safe name that Mac LCD accounts will be on-boarded into.
 - `$LCDPlatformSearchRegex`
-    - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (each associated with a different DNS domain).  In most situations the default value of ".*" will be sufficient.
+    - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
 - `$SafeSearchList`
     - List of CyberArk Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.  May be left empty (i.e. "") to search all safes.  NOTE: The PAM API user's permissions will also dictate which Safes can and will be searched!
 - `$EPMSetIDs`
@@ -186,14 +303,53 @@ There are a series of script variables that must be set off default, to values t
 
 # Usage and Examples
 
-## Advanced EPM Set Targeting and Scoping
->Coming Soon!
+## Advanced Domain Name EPM Set Targeting and Process Scoping
+Unfortunately, at present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
+
+1.)  We can attempt to discover the domain name via DNS against a set of possible domain names
+
+2.)  We can assert a static and known domain name for all endpoints that are in scope of the running utility process (e.g. EPM Sets)
+
+In scenarios wherein all possible Windows endpoints across all possible EPM Sets, will always be members of a single known domain name, we can easily achieve the desired result with a single utility process by disabling Dynamic resolution (`$ValidateDomainNamesDNS`) and defining our domain name to the script accordingly.   However, wherein EPM agents may be deployed across endpoints that hold membership in a diverse spread of varied domains, and wherein domain name resolution via DNS is also not possible or otherwise deemed unreliable, another approach is required.
+
+This utility supports multiple processes to be defined and executed in parallel, working through the use of strategic EPM Set design and PAM Platform alignment, to support accurate domain name mapping in multi-domain environments.
+
+Illustrated below is a two-domain example where EPM contains endpoints may have membership in either DomainA.com or DomainB.net, and the steps for how to approach:
+
+1.)  If not already established, separate endpoints into unique EPM Sets, each pertaining to their respective domain.  
+- Consider endpoints for example, with membership in `DomainA.com` as belonging to EPM Set Id `{abc123}` and endpoints with membership in `DomainB.net` as belonging to EPM Set Id `{xzy987}`.
+
+2.)  Create separate LCD platforms for each domain using a regex-friendly naming convention
+- Consider endpoints for example, with membership in `DomainA.com` as targeting one or more platforms beginning with `_CYBR_LCD_SetA_` and endpoints with membership in `DomainB.net` as targeting one or more platforms named `_CYBR_LCD_SetB_`
+
+3.)  Configure separate utility processes (e.g. Scheduled Tasks) with the following uniquely defined variables:
+
+- DomainA
+    ```Powershell
+    ...
+    $OnboardingPlatformIdWin = "_CYBR_LCD_SetA_Windows"
+    $LCDPlatformSearchRegex = "^_CYBR_LCD_SetA_.*$"
+    $EPMSetIDs = "{abc123}"
+    ...
+    ```
+- DomainB
+    ```powershell
+    ...
+    $OnboardingPlatformIdWin = "_CYBR_LCD_SetB_Windows"
+    $LCDPlatformSearchRegex = "^_CYBR_LCD_SetB_.*$"
+    $EPMSetIDs = "{xyz987}"
+    ...
+    ```
+These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false off-boarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
 
 ## Logging
->Coming Soon!
+Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  These log files are created automatically in a `"Logs"` subfolder ( created automatically by the solution), in the same directory that contains the script file.
+
+Additionally, when `$ReportOnlyMode` is set to `$true`, a CSV file containing all accounts that are candidates for on-boarding and/or off-boarding is supplied, to simplify any subsequent data processing and review.
 
 ## Limitations and Known Issues
->Coming Soon!
+### ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
+Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following Knowledge Base (KB) article for details on how to possibly resolve this - https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary
 
 ## Interactive Output Example
 
