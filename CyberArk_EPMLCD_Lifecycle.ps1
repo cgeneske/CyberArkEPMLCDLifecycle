@@ -178,7 +178,6 @@ This solution is provided as-is - it is not supported by CyberArk nor an officia
 #>
 
 #Requires -Version 5.0
-#Requires -Modules System.Web
 
 ################################################### SCRIPT VARIABLES ####################################################
 #region Script Variables
@@ -669,21 +668,19 @@ Function Invoke-APIAuthentication {
         [string]$App
     )
 
-    $APICred = $null
+    $APICred = Get-APICredential -App $App
     $APIAuthUrl = $null
     $postBody = $null
 
     switch ($App) {
         "PAM" {
             $APIAuthUrl = $PAMAuthLogonUrl
-            $APICred = Get-APICredential -App PAM
             $postBody = @{
                 concurrentSession = $true 
             }
         }
         "EPM" {
             $APIAuthUrl = $EPMAuthLogonUrl
-            $APICred = Get-APICredential -App EPM
             $postBody = @{
                 ApplicationID = "EPM LCD Lifecycle"
             }
@@ -698,15 +695,15 @@ Function Invoke-APIAuthentication {
         Write-Log -Type INF -Message "Attempting to authenticate to [$App] API..."
         $result = Invoke-RestMethod -Method Post -Uri $APIAuthUrl -Body $postBody -ContentType "application/json"
         Write-Log -Type INF -Message "Successfully authenticated to [$App] API"
-        $APICred = $null
-        $postBody = $null
         return $result
     }
     catch {
         Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API"
+        throw
+    }
+    finally {
         $APICred = $null
         $postBody = $null
-        throw
     } 
 }
 
