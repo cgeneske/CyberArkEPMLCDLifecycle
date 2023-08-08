@@ -8,14 +8,14 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 
 ## Features
 
-- Complete lifecycle management (on-boarding and off-boarding) for named local accounts in PAM that are based on LCD
-- Designed to be run interactively or via Scheduled Task, from a central endpoint that has access to the PAM and EPM APIs (i.e. The CPM)
+- Complete lifecycle management (on/off-boarding) for named local accounts in PAM that are based on LCD
+- Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
-- Flexible Safe and Platform scoping for continuous management - LCD accounts can move from Staging Safes or Platforms during their lifespan
+- Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
-- **No hard-coded secrets!**  Supports CyberArk Central Credential Provider (CCP) and Windows Credential Manager for secure retrieval of the needed API credentials
-- Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication types
-- Non-invasive Report-Only mode, useful for determining which accounts are candidates for on-boarding to, or off-boarding from, PAM, prior to go-live
+- **No hard-coded secrets!**  Support for CyberArk Central Credential Provider (CCP) and Windows Credential Manager
+- Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
+- Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
 
 # Environment Setup
 
