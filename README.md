@@ -13,7 +13,7 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
-- **No hard-coded secrets!**  Support for CyberArk Central Credential Provider (CCP) and Windows Credential Manager
+- **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
 
