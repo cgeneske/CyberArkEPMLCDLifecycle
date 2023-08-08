@@ -26,7 +26,22 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 - PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform, there is a new capability coming soon to Privilege Cloud Discovery that will natively integrate with EPM for discovering and naturally on-boarding local accounts to be managed via LCD.  For more information on this capability, be sure to reach out to your CyberArk Account Team!
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform, there is a new capability coming soon to Privilege Cloud Discovery that will natively integrate with EPM for discovering and naturally on-boarding local accounts to be managed via LCD.  For more information on this capability, be sure to reach out to your CyberArk account team.
+
+## Deployment Overview
+1. Prepare a purpose-dedicated CyberArk PAM User (CyberArk Authentication) - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
+
+2. Prepare a purpose-dedicated CyberArk EPM User - See [EPM API User Creation and Permissions](#epm-api-user-creation-and-permissions)
+
+3. Add the PAM and EPM user credentials to your choice of CyberArk PAM (CCP) or Windows Credential Manager
+    - For CyberArk PAM (CCP), see [CyberArk Central Credential Provider (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations)
+    - For Windows Credential Manager, see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)
+
+4. Customize the script for your environment and desired outcome - See [Assigning Script Variables](#assigning-script-variables) 
+
+5. Run the script!
+
+6. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
 
 ## PAM API User Creation and Permissions
 A purpose-dedicated Vault Local User (CyberArk Authentication) should be created in PAM for use with this utility.  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
@@ -105,11 +120,15 @@ When implementing Client Certificate authentication, the certificate you wish to
 
 To delegate permissions to the certificate's private key, open the local machine's certificates snap-in (certlm.msc) and do the following:
 
-1.) Right-Click on the Client Certificate and navigate to "All Tasks" > "Manage Private Keys..."
+1. Right-Click on the Client Certificate and navigate to "All Tasks" > "Manage Private Keys..."
 
-2.) Add the script's executing context to the Access Control List (ACL) and grant "Read" permissions
+2. Add the script's executing context to the Access Control List (ACL) and grant "Read" permissions
 
-For more information on the CyberArk Central Credential Provider (CCP), please refer to CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm
+For general information on the CyberArk Central Credential Provider (CCP), please refer to CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm
+
+For guidance on configuring CCP for OS User authentication, see CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#ConfigureWindowsDomainAuthentication
+
+For guidance on configuring CCP for Certificate authentication, see CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#SecurecommunicationbetweenapplicationsandtheCentralCredentialProvider
 
 ## Running via Scheduled Task (Non-Interactively)
 In general, the setup of a scheduled task to run this utility on a periodic basis (time based trigger) is very straight forward.   The options for the user that is assigned to run this scheduled task depends on whether the Windows Credential Manager or CyberArk PAM (CCP) is used as the store for the PAM and API credentials.
@@ -306,9 +325,9 @@ There are a series of script variables that must be set off default, to values t
 ## Advanced Domain Name EPM Set Targeting and Process Scoping
 Unfortunately, at present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
 
-1.)  We can attempt to discover the domain name via DNS against a set of possible domain names
+1. We can attempt to discover the domain name via DNS against a set of possible domain names
 
-2.)  We can assert a static and known domain name for all endpoints that are in scope of the running utility process (e.g. EPM Sets)
+2. We can assert a static and known domain name for all endpoints that are in scope of the running utility process (e.g. EPM Sets)
 
 In scenarios wherein all possible Windows endpoints across all possible EPM Sets, will always be members of a single known domain name, we can easily achieve the desired result with a single utility process by disabling Dynamic resolution (`$ValidateDomainNamesDNS`) and defining our domain name to the script accordingly.   However, wherein EPM agents may be deployed across endpoints that hold membership in a diverse spread of varied domains, and wherein domain name resolution via DNS is also not possible or otherwise deemed unreliable, another approach is required.
 
@@ -316,30 +335,30 @@ This utility supports multiple processes to be defined and executed in parallel,
 
 Illustrated below is a two-domain example where EPM contains endpoints may have membership in either DomainA.com or DomainB.net, and the steps for how to approach:
 
-1.)  If not already established, separate endpoints into unique EPM Sets, each pertaining to their respective domain.  
-- Consider endpoints for example, with membership in `DomainA.com` as belonging to EPM Set Id `{abc123}` and endpoints with membership in `DomainB.net` as belonging to EPM Set Id `{xzy987}`.
+1. If not already established, separate endpoints into unique EPM Sets, each pertaining to their respective domain.  
+    - Consider endpoints for example, with membership in `DomainA.com` as belonging to EPM Set Id `{abc123}` and endpoints with membership in `DomainB.net` as belonging to EPM Set Id `{xzy987}`.
 
-2.)  Create separate LCD platforms for each domain using a regex-friendly naming convention
-- Consider endpoints for example, with membership in `DomainA.com` as targeting one or more platforms beginning with `_CYBR_LCD_SetA_` and endpoints with membership in `DomainB.net` as targeting one or more platforms named `_CYBR_LCD_SetB_`
+2. Create separate LCD platforms for each domain using a regex-friendly naming convention
+    - Consider endpoints for example, with membership in `DomainA.com` as targeting one or more platforms beginning with `_CYBR_LCD_SetA_` and endpoints with membership in `DomainB.net` as targeting one or more platforms named `_CYBR_LCD_SetB_`
 
-3.)  Configure separate utility processes (e.g. Scheduled Tasks) with the following uniquely defined variables:
+3. Configure separate utility processes (e.g. Scheduled Tasks) with the following uniquely defined variables:
 
-- DomainA
-    ```Powershell
-    ...
-    $OnboardingPlatformIdWin = "_CYBR_LCD_SetA_Windows"
-    $LCDPlatformSearchRegex = "^_CYBR_LCD_SetA_.*$"
-    $EPMSetIDs = "{abc123}"
-    ...
-    ```
-- DomainB
-    ```powershell
-    ...
-    $OnboardingPlatformIdWin = "_CYBR_LCD_SetB_Windows"
-    $LCDPlatformSearchRegex = "^_CYBR_LCD_SetB_.*$"
-    $EPMSetIDs = "{xyz987}"
-    ...
-    ```
+    - DomainA
+        ```Powershell
+        ...
+        $OnboardingPlatformIdWin = "_CYBR_LCD_SetA_Windows"
+        $LCDPlatformSearchRegex = "^_CYBR_LCD_SetA_.*$"
+        $EPMSetIDs = "{abc123}"
+        ...
+        ```
+    - DomainB
+        ```powershell
+        ...
+        $OnboardingPlatformIdWin = "_CYBR_LCD_SetB_Windows"
+        $LCDPlatformSearchRegex = "^_CYBR_LCD_SetB_.*$"
+        $EPMSetIDs = "{xyz987}"
+        ...
+        ```
 These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false off-boarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
 
 ## Logging
@@ -359,3 +378,15 @@ CyberArk_EPMLCD_Lifecycle.ps1
 
 ![Example Variables](images/variablesexample.PNG)
 ![Example Output](images/outputexample.png)
+
+# Support
+
+This project is neither developed nor supported by CyberArk; any official support channels offered by the vendor are not appropriate for seeking help with the implementation or function of this solution.
+
+Help and support should be sought by [opening an issue][new-issue] which will be reviewed as-able.
+
+[new-issue]: https://github.com/cgeneske/CyberArkEPMLCDLifecycle/issues/new
+
+# License
+
+This project is [licensed under the MIT License](LICENSE.md).

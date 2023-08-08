@@ -539,6 +539,7 @@ Function Get-APICredential {
         The following script-level variables are used:
             - $APIUserSource
             - $CCPAuthType
+            - $CertThumbprint
             - $CCPHostname
             - $CCPPort
             - $CCPServiceRoot
