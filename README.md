@@ -2,7 +2,7 @@
 
 Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to CyberArk's Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concert with dialing in these least-privilege and application controls, EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
-This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management subjects that exist in PAM, automatically determining and executing the needed onboarding and offboarding actions in PAM, to maintain parity.  As new agents come online in EPM, named local accounts will be on-boarded to PAM.  Likewise as agents are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their named local accounts will be off-boarded from PAM.
+This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management subjects that exist in PAM, automatically determining and executing the needed on-boarding and off-boarding actions in PAM, to maintain parity.  As new agents come online in EPM, named local accounts will be on-boarded to PAM.  Likewise as agents are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their named local accounts will be off-boarded from PAM.
 
 >**Note**: This solution is provided as-is, it is not supported by CyberArk nor an official CyberArk solution
 
