@@ -21,7 +21,9 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 
 ## Prerequisites
 
-- CyberArk Privilege Access Management (PAM) v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
+- One of the following CyberArk Privilege Access Management (PAM) platforms:
+    - CyberArk Privilege Access Management (PAM) Self-Hosted v11.3+
+    - CyberArk Privilege Cloud (Standard/Standalone)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
 - PowerShell v5 or greater
@@ -49,9 +51,9 @@ A purpose-dedicated Vault Local User (CyberArk Authentication) should be created
 The user should be created as a "Standard user"; no Vault level authorizations or built-in group memberships are mandatory for this user.
 
 For complete instructions on how to create this user, see official CyberArk documentation links below:
-- [Privilege Cloud - Standard/Standalone](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-user-mng.htm?tocpath=Setup%7CAdd%20and%20manage%20users%7C_____0#CreateCyberArkusers)
-- [PAM Self-Hosted (13.2 and above)](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Users-groups-add-users-v10.htm?tocpath=Administrator%7CUser%20Management%7CManage%20users%20and%20groups%7CUsing%20the%20version%2010%20interface%7C_____1)
-- [PAM Self-Hosted (13.0 and below)](https://docs.cyberark.com/PAS/13.0/en/Content/PASIMP/Managing-Users.htm?tocpath=Administrator%7CUser%20Management%7C_____4#AddausertoaVault)
+- [Add a User - Privilege Cloud (Standard/Standalone)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-user-mng.htm?tocpath=Setup%7CAdd%20and%20manage%20users%7C_____0#CreateCyberArkusers)
+- [Add a User - PAM Self-Hosted (13.2 and above)](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Users-groups-add-users-v10.htm?tocpath=Administrator%7CUser%20Management%7CManage%20users%20and%20groups%7CUsing%20the%20version%2010%20interface%7C_____1)
+- [Add a User - PAM Self-Hosted (13.0 and below)](https://docs.cyberark.com/PAS/13.0/en/Content/PASIMP/Managing-Users.htm?tocpath=Administrator%7CUser%20Management%7C_____4#AddausertoaVault)
 
 For Safes that will be considered for existing accounts inventory and off-boarding activity, the following privileges are required:
 
@@ -71,8 +73,8 @@ For Safes that will be considered for on-boarding activity, these being the stat
 >`**` - Required if this safe should also be considered for off-boarding
 
 For complete instructions on how to permission a Safe, see official CyberArk documentation links below:
-- [Privilege Cloud - Standard/Standalone](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm?tocpath=Administrators%7CCreate%20Safes%20and%20assign%20access%7C_____2#AddSafemembers)
-- [PAM Self-Hosted](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Safes-add-a-safe-member-V12-6.htm?tocpath=Administrator%7CPrivileged%20Accounts%7CAccess%20Control%7CSafes%20and%20Safe%20members%7CNew%20interface%7C_____3#AddaSafemember1)
+- [Add Safe Members - Privilege Cloud (Standard/Standalone)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm?tocpath=Administrators%7CCreate%20Safes%20and%20assign%20access%7C_____2#AddSafemembers)
+- [Add Safe Members - PAM Self-Hosted](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Safes-add-a-safe-member-V12-6.htm?tocpath=Administrator%7CPrivileged%20Accounts%7CAccess%20Control%7CSafes%20and%20Safe%20members%7CNew%20interface%7C_____3#AddaSafemember1)
 
 ## EPM API User Creation and Permissions
 A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  At this time there are limited options for creating API-dedicated logins in EPM due to the fact that logins require E-Mail activation and yet the login must also remain unique.  To overcome this limitation, the same E-Mail of an existing login may be used in the creation of a new and unique login through the following technique:

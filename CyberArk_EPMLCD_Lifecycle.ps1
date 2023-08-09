@@ -29,7 +29,7 @@ Key Features:
 
 Requirements:
 
-- CyberArk Privilege Access Management (PAM) v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
+- CyberArk Privilege Access Management (PAM) Self-Hosted v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
 - PowerShell v5 or greater
