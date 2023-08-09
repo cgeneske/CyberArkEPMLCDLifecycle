@@ -23,12 +23,12 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 
 - One of the following CyberArk Privilege Access Management (PAM) platforms:
     - CyberArk Privilege Access Management (PAM) Self-Hosted v11.3+
-    - CyberArk Privilege Cloud (Standard/Standalone)
+    - CyberArk Privilege Cloud (Standard/Standalone) (i.e. `subdomain.privilegecloud.cyberark.com`)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform, there is a new capability coming soon to Privilege Cloud Discovery that will natively integrate with EPM for discovering and naturally on-boarding local accounts to be managed via LCD.  For more information on this capability, be sure to reach out to your CyberArk account team.
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is a new capability coming soon to Privilege Cloud Discovery that will natively integrate with EPM for discovering and naturally on-boarding local accounts to be managed via LCD.  For more information on this capability, be sure to reach out to your CyberArk account team.
 
 ## Deployment Overview
 1. Prepare a purpose-dedicated CyberArk PAM User (CyberArk Authentication) - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
