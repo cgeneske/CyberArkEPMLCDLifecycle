@@ -46,24 +46,33 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
 ## PAM API User Creation and Permissions
 A purpose-dedicated Vault Local User (CyberArk Authentication) should be created in PAM for use with this utility.  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
 
-No Vault level authorizations or built-in group memberships are mandatory for this user.
+The user should be created as a "Standard user"; no Vault level authorizations or built-in group memberships are mandatory for this user.
+
+For complete instructions on how to create this user, see official CyberArk documentation links below:
+- [Privilege Cloud - Standard/Standalone](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-user-mng.htm?tocpath=Setup%7CAdd%20and%20manage%20users%7C_____0#CreateCyberArkusers)
+- [PAM Self-Hosted (13.2 and above)](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Users-groups-add-users-v10.htm?tocpath=Administrator%7CUser%20Management%7CManage%20users%20and%20groups%7CUsing%20the%20version%2010%20interface%7C_____1)
+- [PAM Self-Hosted (13.0 and below)](https://docs.cyberark.com/PAS/13.0/en/Content/PASIMP/Managing-Users.htm?tocpath=Administrator%7CUser%20Management%7C_____4#AddausertoaVault)
 
 For Safes that will be considered for existing accounts inventory and off-boarding activity, the following privileges are required:
 
-- List Accounts
-- Delete Accounts
+- Access > List Accounts
+- Account Management > Delete Accounts
 
 For Safes that will be considered for on-boarding activity, these being the static Windows and Mac safes named in the `$OnboardingSafeWin` and `$OnboardingSafeMac` Script Variables (See the [Assigning Script Variables](#assigning-script-variables) section below for more info), the following privileges are required:
 
-- List Accounts
-- Add Accounts
-- Update Account Properties
-- Update Account Content*
-- Initiate CPM Account Management Operations
-- Delete Accounts**
+- Access --> List Accounts
+- Account Management --> Add Accounts
+- Account Management --> Update Account Properties
+- Account Management --> Update Account Content*
+- Account Management --> Initiate CPM Account Management Operations
+- Account Management --> Delete Accounts**
 
 >`* ` - Specifically required for un-delete scenarios<br/>
 >`**` - Required if this safe should also be considered for off-boarding
+
+For complete instructions on how to permission a Safe, see official CyberArk documentation links below:
+- [Privilege Cloud - Standard/Standalone](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm?tocpath=Administrators%7CCreate%20Safes%20and%20assign%20access%7C_____2#AddSafemembers)
+- [PAM Self-Hosted](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Safes-add-a-safe-member-V12-6.htm?tocpath=Administrator%7CPrivileged%20Accounts%7CAccess%20Control%7CSafes%20and%20Safe%20members%7CNew%20interface%7C_____3#AddaSafemember1)
 
 ## EPM API User Creation and Permissions
 A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  At this time there are limited options for creating API-dedicated logins in EPM due to the fact that logins require E-Mail activation and yet the login must also remain unique.  To overcome this limitation, the same E-Mail of an existing login may be used in the creation of a new and unique login through the following technique:
@@ -76,6 +85,8 @@ Using a login value as in the above "new" example, would send the activation E-M
 The login you create for this utility only needs marked as **"Allow to manage Sets"** along with **"View Only Set Admin"** bindings on any Sets that will be in scope for this utility.
 
 This utility does not require any modifying access to EPM.
+
+For complete instructions on how to create a user in EPM, see official CyberArk documentation [here](https://docs.cyberark.com/EPM/Latest/en/Content/Admin/AccountAdministrator.htm#Managesetusers).
 
 ## Windows Credential Manager Considerations
 The PAM and EPM API user credentials may be retrieved from either the Windows Credential Manager or optionally, from CyberArk PAM itself via the Central Credential Provider (CCP).  This technique ensures the script remains free of any hard-coded secrets while simultaneously remaining compatible with a prompt-less, non-interactive (Scheduled Task) implementation pattern.
@@ -124,11 +135,11 @@ To delegate permissions to the certificate's private key, open the local machine
 
 2. Add the script's executing context to the Access Control List (ACL) and grant "Read" permissions
 
-For general information on the CyberArk Central Credential Provider (CCP), please refer to CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm
+For general information on the CyberArk Central Credential Provider (CCP), please refer to CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm)
 
-For guidance on configuring CCP for OS User authentication, see CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#ConfigureWindowsDomainAuthentication
+For guidance on configuring CCP for OS User authentication, see CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#ConfigureWindowsDomainAuthentication)
 
-For guidance on configuring CCP for Certificate authentication, see CyberArk's official documentation here - https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#SecurecommunicationbetweenapplicationsandtheCentralCredentialProvider
+For guidance on configuring CCP for Certificate authentication, see CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#SecurecommunicationbetweenapplicationsandtheCentralCredentialProvider)
 
 ## Running via Scheduled Task (Non-Interactively)
 In general, the setup of a scheduled task to run this utility on a periodic basis (time based trigger) is very straight forward.   The options for the user that is assigned to run this scheduled task depends on whether the Windows Credential Manager or CyberArk PAM (CCP) is used as the store for the PAM and API credentials.
@@ -329,7 +340,7 @@ Unfortunately, at present, the EPM API does not provide an endpoint's affiliated
 
 2. We can assert a static and known domain name for all endpoints that are in scope of the running utility process (e.g. EPM Sets)
 
-In scenarios wherein all possible Windows endpoints across all possible EPM Sets, will always be members of a single known domain name, we can easily achieve the desired result with a single utility process by disabling Dynamic resolution (`$ValidateDomainNamesDNS`) and defining our domain name to the script accordingly.   However, wherein EPM agents may be deployed across endpoints that hold membership in a diverse spread of varied domains, and wherein domain name resolution via DNS is also not possible or otherwise deemed unreliable, another approach is required.
+In scenarios wherein all possible Windows endpoints across all possible EPM Sets, will always be members of a single known domain name, we can easily achieve the desired result with a single utility process by disabling Dynamic resolution (`$ValidateDomainNamesDNS = $false`) and defining our domain name to the script accordingly.   However, wherein EPM agents may be deployed across endpoints that hold membership in a diverse spread of varied domains, and wherein domain name resolution via DNS is also not possible or otherwise deemed unreliable, another approach is required.
 
 This utility supports multiple processes to be defined and executed in parallel, working through the use of strategic EPM Set design and PAM Platform alignment, to support accurate domain name mapping in multi-domain environments.
 
@@ -368,7 +379,7 @@ Additionally, when `$ReportOnlyMode` is set to `$true`, a CSV file containing al
 
 ## Limitations and Known Issues
 ### ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
-Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following Knowledge Base (KB) article for details on how to possibly resolve this - https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary
+Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
 
 ## Interactive Output Example
 

@@ -4,30 +4,35 @@ CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoin
 Latest solution and full README are available at https://github.com/cgeneske/CyberArkEPMLCDLifecycle 
 
 .DESCRIPTION
-This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management
-subjects that exist in PAM, automatically determining and executing the needed onboarding and offboarding actions in PAM, to maintain parity.
-As new agents come online in EPM, named local accounts will be on-boarded to PAM.  Likewise as agents are pruned from EPM through organic 
-inactivity-based attrition, their named local accounts will be off-boarded from PAM.
+Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to CyberArk's 
+Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concert with dialing in these least-privilege and application controls, 
+EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide 
+agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
+
+This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management subjects 
+that exist in PAM, automatically determining and executing the needed on-boarding and off-boarding actions in PAM, to maintain parity.  As new agents 
+come online in EPM, named local accounts will be on-boarded to PAM.  Likewise as agents are pruned from EPM, either through organic inactivity-based 
+attrition or proactive computer decomissioning flows, their named local accounts will be off-boarded from PAM.
 
 
 Key Features:
 
-- Complete lifecycle management (on-boarding and off-boarding) for named local accounts in PAM that are based on [EPM] LCD
+- Complete lifecycle management (on/off-boarding) for named local accounts in PAM that are based on LCD
+- Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
-- Flexible Safe and Platform scoping for continuous lifecycle candidacy - LCD accounts can move from Staging Safes or Platforms during their lifespan
+- Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
-- Designed to be run interactively or via Scheduled Task, from a centralized endpoint that has access to the PAM and EPM APIs
-- No hard-coded secrets!  Supports CyberArk Central Credential Provider (CCP) and Windows Credential Manager for secure retrieval of the needed API credentials
-- Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication types
-- Non-invasive Report-Only mode, useful for determining which accounts are candidates for on-boarding to, or off-boarding from, PAM, prior to go-live
+- **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
+- Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
+- Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
 
 
 Requirements:
 
-- CyberArk Privilege Access Management (PAM) v11.3+ OR Privilege Cloud (Standard/Standalone) [PAM-SaaS]
+- CyberArk Privilege Access Management (PAM) v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
-- A CyberArk PAM API user credential for running the automation
-- A CyberArk EPM API user credential for running the automation
+- PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
+- PowerShell v5 or greater
 
 
 Script Variables (User-Defined):
