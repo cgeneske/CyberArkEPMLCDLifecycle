@@ -296,12 +296,12 @@ There are a series of script variables that must be set off default, to values t
         ```powershell
         [CCPAuthType]::OSUser
         ```
-        **RECOMMENDED** Will use OS User (Integrated Windows Authentication) to authenticate to the CCP
+        Will use OS User (Integrated Windows Authentication) to authenticate to the CCP **[RECOMMENDED]** 
 
         ```powershell
         [CCPAuthType]::Certificate
         ```
-        **RECOMMENDED** Will use Client Certificate to authenticate to the CCP
+        Will use Client Certificate to authenticate to the CCP **[RECOMMENDED]** 
 
         ```powershell
         [CCPAuthType]::AllowedMachines
