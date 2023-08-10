@@ -39,11 +39,20 @@ This solution leverages both PAM and EPM APIs to compare the computers (agents) 
     - For CyberArk PAM (CCP), see [CyberArk Central Credential Provider (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations)
     - For Windows Credential Manager, see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)
 
-4. Customize the script for your environment and desired outcome - See [Assigning Script Variables](#assigning-script-variables) 
+4. Prepare the respective LCD Platforms (Windows and Mac) that will be used for on-boarding in CyberArk PAM
+    - The LCD Platform for Windows endpoints is `Windows Loosely Device` and this is available out of the box
+    - The LCD Platform for Mac is `MAC Loosely Device`, and can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
+        - For complete instructions on importing a Platform, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Importaplatform)
+    - Critical to the effectiveness of this solution, is ensuring these Platforms are configured for `AutoChangeOnAdd = Yes`.  See official CyberArk documentation for this Platform parameter [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASREF/Platform%20Mgmnt%20-%20UI%20and%20Workflows.htm)
+        - For complete instructions on how to edit a Platform in order to make this configuration change, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Editaplatform)
 
-5. Run the script!
+    ![Example AutoChangeOnAdd](images/AutoChangeOnAdd.png)
 
-6. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
+5. Customize the script for your environment and desired outcome - See [Assigning Script Variables](#assigning-script-variables) 
+
+6. Run the script!
+
+7. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
 
 ## PAM API User Creation and Permissions
 A purpose-dedicated Vault Local User (CyberArk Authentication) should be created in PAM for use with this utility.  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
@@ -244,7 +253,7 @@ There are a series of script variables that must be set off default, to values t
 - `$EPMSetIDs`
     - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
 - `$PAMHostname`
-    - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "customer.privilegecloud.cyberark.com")
+    - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "subdomain.privilegecloud.cyberark.com")
 - `$IgnoreSSLCertErrors`
     - When set to `$true` will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection. It is recommended to leave this value as `$false` to ensure certificates are verified!
 - `$ValidateDomainNamesDNS`
@@ -388,15 +397,40 @@ Presence of this error may indicate a backend configuration disparity with Cyber
 ```powershell
 CyberArk_EPMLCD_Lifecycle.ps1
 ```
+The example scenario below is configured with the following environment-specific considerations and preferences:
+
+### Example Inputs (Script Variable Preparation)
+
+- Report-Only Mode is Enabled, so **<u>no actual on/off-boarding</u>** will take place during this execution
+- We will use all sets in EPM
+- All Safes that the PAM API user has access to, will be searched for existing LCD accounts
+- Named accounts that will exist on every Windows endpoint are `Administrator` and `X_Admin`
+- The named account that will exist on every Mac endpoint is `mac_admin`
+- The default `Windows Loosely Device` and `Mac Loosely Device` Platforms are used for on-boarding
+- The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com`
+- Use DNS lookup to determine endpoint FQDN, and use the host's Suffix Search List for this effort
+    - If an endpoint cannot be DNS resolved, assume it has no domain name for on/off-boarding consideration
+- Use CyberArk PAM (CCP) to retrieve the PAM and EPM API credentials
+- Use Client Certificate Authentication for CCP
+    - Using a certificate with the SHA1 thumbprint of `b88baf191dc7157775fda5fdd1d2b37f762154fd`
 
 ![Example Variables](images/variablesexample.PNG)
+
+### Example Outputs and Result
+
+- One (1) EPM Computer [Windows Platform] was found across two (2) EPM Sets; hostname of `CLIENT02`
+- This EPM Computer was successfully DNS resolved to FQDN `CLIENT02.cybr.com`
+- One (1) LCD-based account out of eighty (80) total accounts were found as existing in PAM
+    - This one (1) existing LCD-based account is `Administrator` for `CLIENT02.cybr.com`
+- Only `X_Admin` for `CLIENT02.cybr.com` was found to not exist in PAM, and is reported for on-boarding
+
 ![Example Output](images/outputexample.png)
 
 # Support
 
 This project is neither developed nor supported by CyberArk; any official support channels offered by the vendor are not appropriate for seeking help with the implementation or function of this solution.
 
-Help and support should be sought by [opening an issue][new-issue] which will be reviewed as-able.
+Help and support should be sought by [opening an issue][new-issue].
 
 [new-issue]: https://github.com/cgeneske/CyberArkEPMLCDLifecycle/issues/new
 

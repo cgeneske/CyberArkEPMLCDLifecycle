@@ -98,7 +98,7 @@ SafeSearchList          - List of CyberArk Safes which will be searched for exis
 
 EPMSetIDs               - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
 
-PAMHostname             - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "customer.privilegecloud.cyberark.com")
+PAMHostname             - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "subdomain.privilegecloud.cyberark.com")
 
 IgnoreSSLCertErrors     - When set to "$true" will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection.
                           It is recommended to leave this value as "$false" to ensure certificates are verified!
@@ -197,9 +197,9 @@ $SkipOnBoarding = $false
 $SkipOffBoarding = $false
 
 #General Environment Details
-$EndpointUserNamesWin = "Administrator"
-$EndpointUserNamesMac = "root"
-$EndpointDomainNames = "cybr.com"
+$EndpointUserNamesWin = @("Administrator", "X_Admin")
+$EndpointUserNamesMac = "mac_admin"
+$EndpointDomainNames = ""
 $OnboardingPlatformIdWin = "WinLooselyDevice"
 $OnboardingPlatformIdMac = "MACLooselyDevice"
 $OnboardingSafeWin = "EPM LCD Staging"
@@ -207,11 +207,11 @@ $OnboardingSafeMac = "EPM LCD Staging"
 $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = ""
 $EPMSetIDs = ""
-$PAMHostname = "pam.cybr.com"
+$PAMHostname = "hostname"
 $IgnoreSSLCertErrors = $false
 
 #Dynamic FQDN Lookup Options
-$ValidateDomainNamesDNS = $false
+$ValidateDomainNamesDNS = $true
 $SkipIfNotInDNS = $false
 
 #Source for PAM and EPM API credentials
@@ -222,13 +222,13 @@ $PAMCredTarget = "EPM_Lifecycle_PAMAPI"
 $EPMCredTarget = "EPM_Lifecycle_EPMAPI"
 
 #Populate when API User Source is [APIUserSource]::CyberArkCCP
-$CCPAuthType = [CCPAuthType]::Certificate
-$CertThumbprint = "b88baf191dc7157775fda5fdd1d2b37f762154fd"
+$CCPAuthType = [CCPAuthType]::OSUser
+$CertThumbprint = ""
 $PAMAccountName = "lifecycle_pam_api.pass"
 $PAMObjectSafe = "EPM Lifecycle API"
 $EPMAccountName = "lifecycle_epm_api.pass"
 $EPMObjectSafe = "EPM Lifecycle API"
-$CCPHostname = "pam.cybr.com"
+$CCPHostname = "hostname"
 $CCPPort = 443
 $CCPServiceRoot = "AIMWebService"
 $CCPAppID = "EPM LCD Lifecycle"
@@ -607,10 +607,15 @@ Function Get-APICredential {
             try {
                 Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from CCP..."
                 $result = Invoke-RestMethod @methodArgs
-                Write-Log -Type INF -Message "Successfully retrieved the [$App] API credential from CCP"
-                return [PSCustomObject]@{
-                    Username = $result.Username
-                    Password = $result.Content
+                if ($result.UserName -and $result.Content) {
+                    Write-Log -Type INF -Message "Successfully retrieved the [$App] API credential from CCP"
+                    return [PSCustomObject]@{
+                        Username = $result.Username
+                        Password = $result.Content
+                    }
+                }
+                else {
+                    throw "Invalid response. Check CCP logs to ensure the request is being received"
                 }
             } 
             catch {
