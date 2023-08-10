@@ -151,7 +151,7 @@ You must populate all three fields:
 
 In the populated example shown above, if we consider this as the PAM API credential, then `$PAMCredTarget` would need to be set as follows:
 ```powershell 
-$PAMCredTarget = "CYBR_Lifecycle_PAMAPI"
+$PAMCredTarget = "EPMLCD_Lifecycle_PAMAPI"
 ```
 
 ## Running via Scheduled Task (Non-Interactively)
