@@ -255,7 +255,9 @@ There are a series of script variables that must be set off default, to values t
 - `$LCDPlatformSearchRegex`
     - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
 - `$SafeSearchList`
-    - List of CyberArk Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.  May be left empty (i.e. "") to search all safes.  NOTE: The PAM API user's permissions will also dictate which Safes can and will be searched!
+    - List of CyberArk Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.  May be left empty (i.e. "") to search all safes. <br/><br/>
+    
+    >**NOTE:** The PAM API user's permissions will also dictate, and may limit, which Safes can and will be searched!
 - `$EPMSetIDs`
     - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
 - `$PAMHostname`
