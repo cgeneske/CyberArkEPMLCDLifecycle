@@ -793,11 +793,16 @@ Function Get-PAMActiveLCDPlatforms {
                 }
             }
         }
-        Write-Log -Type INF -Message "[$($platformList.Count)] active LCD platforms have been found and will be used:"
-        foreach ($platformId in $platformList) {
-            Write-Log -Type INF -Message "---> $platformId"
+        if ($platformList) {
+            Write-Log -Type INF -Message "[$($platformList.Count)] active LCD platforms have been found and will be used:"
+            foreach ($platformId in $platformList) {
+                Write-Log -Type INF -Message "---> $platformId"
+            }
+            return $platformList
         }
-        return $platformList
+        else {
+            throw "There are no active LCD platforms based on the defined criteria.  Please check Platform status in CyberArk and try again."
+        }
     }
     catch {
         Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to get LCD derived platforms"
