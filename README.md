@@ -118,7 +118,7 @@ Each credential should be entered via `Windows Credentials > "Add a generic cred
 
 You must populate all three fields:  
 
-- The value for field `"Internet or network address"` should be populated with the ID/label that will be assigned to the `$PAMTargetCred` or `$EPMTargetCred` script variables respectively (See the [Assigning Script Variables](#assigning-script-variables) section below).
+- The value for field `"Internet or network address"` should be populated with the ID/label that will be assigned to the `$PAMCredTarget` or `$EPMCredTarget` script variables respectively (See the [Assigning Script Variables](#assigning-script-variables) section below).
 
 - The value for field `"User name"` should contain the actual API credential's Username value
 
