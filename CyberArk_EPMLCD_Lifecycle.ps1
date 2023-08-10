@@ -226,8 +226,8 @@ $SkipIfNotInDNS = $false
 $APIUserSource = [APIUserSource]::CyberArkCCP 
 
 #Populate When API User Source is [APIUserSource]::WinCredMgr
-$PAMCredTarget = "EPM_Lifecycle_PAMAPI"
-$EPMCredTarget = "EPM_Lifecycle_EPMAPI"
+$PAMCredTarget = "EPMLCD_Lifecycle_PAMAPI"
+$EPMCredTarget = "EPMLCD_Lifecycle_EPMAPI"
 
 #Populate when API User Source is [APIUserSource]::CyberArkCCP
 $CCPAuthType = [CCPAuthType]::OSUser
