@@ -4,15 +4,15 @@ Organizations seeking to reduce and eliminate privilege escalation abuse, creden
 
 This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management subjects that exist in PAM, automatically determining and executing the needed on-boarding and off-boarding actions in PAM.  As new agents come online in EPM, standardized local accounts will be on-boarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their local accounts will be off-boarded from PAM.
 
-The design and objective of this utility is to automate the on/off-boarding of one or more user-defined, standardized local account(s) (i.e. Windows Built-In "Administrator") similar to CyberArk's legacy Auto-Detection process.  It achieves this using data obtained exclusively from user input, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).  
+The design and objective of this utility is to automate the on/off-boarding of one or more user-defined, standardized local account(s) (i.e. Windows Built-In "Administrator") in PAM, for endpoints that receive an EPM agent, similar to CyberArk's legacy Auto-Detection process.  It achieves this using data obtained exclusively from user input, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).  
 
-**This utility does not scan, detect, nor communicate with EPM endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting on/off-boarding activities in PAM!**
+**This utility does not scan nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting on/off-boarding activities in PAM!**
 
 >**Note**: This solution is provided as-is, it is not supported by CyberArk nor an official CyberArk solution
 
 ## Features
 
-- Complete lifecycle management (on/off-boarding) for named local accounts in PAM that are based on LCD
+- Complete lifecycle management (on/off-boarding) of standardized local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
