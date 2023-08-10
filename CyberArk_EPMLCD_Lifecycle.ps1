@@ -9,7 +9,7 @@ Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concer
 EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide 
 agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
-The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local account(s), on endpoints with an 
+The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an 
 EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows or Mac) as a part of its standard 
 baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the 
 CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
