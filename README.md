@@ -204,9 +204,11 @@ There are a series of script variables that must be set off default, to values t
     - When set to `$true` will skip the off-boarding logic.
 - `$EndpointUserNamesWin`
     - List of one or more local account usernames to lifecycle manage for all Windows-based EPM endpoints.
+
     >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints.  An account will be on-boarded to PAM for each username provided in this list, and for every Windows endpoint, regardless if it actually exists on a given endpoint or not.
 - `$EndpointUserNamesMac`
     - List of one or more local account usernames to lifecycle manage for all Mac-based EPM endpoints.
+    
     >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints.  An account will be on-boarded to PAM for each username provided in this list, and for every Mac endpoint, regardless if it actually exists on a given endpoint or not.
 - `$EndpointDomainNames`
     - List of one or more DNS domain names that EPM endpoints have membership to. Applicable only for Windows endpoints as Mac endpoints are assumed to have no domain name. Used with the "ValidateDomainNamesDNS" and "SkipIfNotInDNS" -- See below for complete info on these variables.
