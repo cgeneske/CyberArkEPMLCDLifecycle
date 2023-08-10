@@ -125,8 +125,6 @@ For guidance on configuring CCP for OS User authentication, see CyberArk's offic
 For guidance on configuring CCP for Certificate authentication, see CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#SecurecommunicationbetweenapplicationsandtheCentralCredentialProvider)
 
 ## Windows Credential Manager Considerations
-The PAM and EPM API user credentials may be retrieved from either the Windows Credential Manager or optionally, from CyberArk PAM itself via the Central Credential Provider (CCP).  This technique ensures the script remains free of any hard-coded secrets while simultaneously remaining compatible with a prompt-less, non-interactive (Scheduled Task) implementation pattern.
-
 When choosing to leverage the Windows Credential Manager, each API credential must be manually added to the Credential Manager under the user context that intends to execute the utility.  This may be your standard interactive user, or a purpose-dedicated service account that has been logged in interactively to complete these steps.
 
 >**NOTE:** The Windows Credential Manager UI allows for secure creation or update of credentials but does not provide a direct means of retrieving the clear-text credential by design.

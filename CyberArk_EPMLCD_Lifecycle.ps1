@@ -9,10 +9,18 @@ Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concer
 EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide 
 agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
-This solution leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local account management subjects 
-that exist in PAM, automatically determining and executing the needed on-boarding and off-boarding actions in PAM, to maintain parity.  As new agents 
-come online in EPM, named local accounts will be on-boarded to PAM.  Likewise as agents are pruned from EPM, either through organic inactivity-based 
-attrition or proactive computer decomissioning flows, their named local accounts will be off-boarded from PAM.
+The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local account(s), on endpoints with an 
+EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows or Mac) as a part of its standard 
+baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the 
+CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
+
+The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, 
+automatically determining and executing the needed on-boarding and off-boarding actions in PAM.  As new agents come online in EPM, one or more 
+standardized local accounts will be on-boarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition 
+or proactive computer decomissioning flows, their local accounts will be off-boarded from PAM.
+
+**This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of 
+any local accounts prior to conducting on-boarding activities in CyberArk PAM!**
 
 
 Key Features:
@@ -31,7 +39,7 @@ Requirements:
 
 - CyberArk Privilege Access Management (PAM) Self-Hosted v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
-- PAM and EPM API credentials added to Windows Credential Manager or CyberArk PAM (CCP)
+- PAM and EPM API credentials added to CyberArk PAM (CCP) or the Windows Credential Manager
 - PowerShell v5 or greater
 
 
