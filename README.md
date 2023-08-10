@@ -388,9 +388,14 @@ Being designed to run both interactively and non-interactively, this utility aut
 
 Additionally, when `$ReportOnlyMode` is set to `$true`, a CSV file containing all accounts that are candidates for on-boarding and/or off-boarding is supplied, to simplify any subsequent data processing and review.
 
+>**NOTE:** The script will immediately abort if the log file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs folder and log files within.  Run the script interactively to observe the error you're receiving in console, if this should occur.
+
 ## Limitations and Known Issues
 ### ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
 Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
+
+### PowerShell ISE Logging
+The script has been shown to experience intermittent issues writing to the log file, due to file locks, when running from within PowerShell ISE.  Therefore it is highly recommended that when running this script interactively, it be done from a standard PowerShell prompt and not from within PowerShell ISE.
 
 ## Interactive Output Example
 

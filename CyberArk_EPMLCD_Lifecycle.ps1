@@ -176,7 +176,7 @@ AUTHOR:
 Craig Geneske
 
 VERSION HISTORY:
-1.0 7/26/2023 - Initial Release
+1.0 8/10/2023 - Initial Release
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -462,7 +462,13 @@ Function Write-Log {
 
     #Logfile Output (Non-Interactive)
     if (!(Test-Path -Path $LogFilePath)) {
-        New-Item -Path $LogFilePath -Force *> $null
+        try {
+            New-Item -Path $LogFilePath -Force -ErrorAction Stop *> $null
+        }
+        catch {
+            Write-Host "Unable to create log file, aborting script --> $($_.Exception.Message)"
+            exit -1
+        }
     }
     Add-Content -Path $LogFilePath -Value $eventString
 }
