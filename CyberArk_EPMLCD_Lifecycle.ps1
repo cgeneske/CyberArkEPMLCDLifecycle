@@ -205,7 +205,7 @@ $SkipOnBoarding = $false
 $SkipOffBoarding = $false
 
 #General Environment Details
-$EndpointUserNamesWin = @("Administrator", "X_Admin")
+$EndpointUserNamesWin = "Administrator"
 $EndpointUserNamesMac = "mac_admin"
 $EndpointDomainNames = ""
 $OnboardingPlatformIdWin = "WinLooselyDevice"
@@ -797,14 +797,17 @@ Function Get-PAMActiveLCDPlatforms {
             foreach ($pattern in $LCDPlatformSearchRegex) {
                 if ($platform.general.id -match $pattern -and `
                     ($platform.general.platformBaseId -match "^WinLooselyDevice$" -or $platform.general.platformBaseId -match "^Unix$")) {
-                    $platformList += $platform.general.id
+                    $platformList += [PSCustomObject]@{
+                        PlatformID = $platform.general.id
+                        PlatformBaseID = $platform.general.platformBaseID
+                    }
                 }
             }
         }
         if ($platformList) {
             Write-Log -Type INF -Message "[$($platformList.Count)] active LCD platforms have been found and will be used:"
-            foreach ($platformId in $platformList) {
-                Write-Log -Type INF -Message "---> $platformId"
+            foreach ($platform in $platformList) {
+                Write-Log -Type INF -Message "---> $($platform.PlatformID)"
             }
             return $platformList
         }
@@ -843,7 +846,7 @@ Function Get-PAMLCDAccounts {
         [string]$SessionToken,
 
         [Parameter(Mandatory = $true)]
-        [string[]]$LCDPlatformList
+        [PSCustomObject[]]$LCDPlatformList
     )
 
     $PAMAccountsList = @()
@@ -870,14 +873,21 @@ Function Get-PAMLCDAccounts {
                     $accountsCounter++
                     $isCandidate = $false
                     foreach ($platform in $LCDPlatformList) {
-                        if ($account.platformId -eq $platform) {
+                        if ($account.platformId -eq $platform.PlatformID) {
                             $isCandidate = $true
                             break
                         }
                     }
                     if ($isCandidate) {
-                        $PAMAccountsList += $account
-                        $candidatesCounter++
+                        foreach ($platform in $LCDPlatformList) {
+                            if ($account.platformId -eq $platform.PlatformID) {
+                                $PAMAccountsList += [PSCustomObject]@{
+                                    Instance = $account
+                                    PlatformBaseID = $platform.PlatformBaseID
+                                }
+                                $candidatesCounter++
+                            }
+                        }
                     }
                 }
                 if ($result.nextLink) {
@@ -1285,31 +1295,13 @@ Function Get-OnBoardingCandidates {
     )
 
     $onboardCandidates = @()
-    Write-Log -Type INF -Message "Determining onboarding candidates..."
+    Write-Log -Type INF -Message "Determining on-boarding candidates..."
     foreach ($comp in $EPMEndpoints) {
-        $compExistsInPAM = $false
         $potentialOnboardCandidates = @()
         foreach ($account in $PAMAccounts) {
-            if ($account.address -match "^$($comp.ComputerName)$") {
-                $compExistsInPAM = $true
+            if ($account.Instance.address -match "^$($comp.ComputerName)$") {
                 $potentialOnboardCandidates += $account
             }
-        }
-        if (!$compExistsInPAM) {
-            $usernameList = @()
-            switch ($comp.Platform) {
-                "Windows" { $usernameList = $EndpointUserNamesWin}
-                "MacOS" { $usernameList = $EndpointUserNamesMac}
-            }
-
-            foreach ($username in $usernameList) {
-                $onboardCandidates += [PSCustomObject]@{
-                    Username = $username
-                    Address = $comp.ComputerName
-                    Platform = $comp.Platform
-                }
-            }
-            continue
         }
 
         $usernameList = @()
@@ -1318,20 +1310,29 @@ Function Get-OnBoardingCandidates {
             "MacOS" { $usernameList = $EndpointUserNamesMac}
         }
         foreach ($username in $usernameList) {
-            $userNameExistsInPAM = $false
-            foreach ($account in $potentialOnboardCandidates) {
-                if ($account.userName -match "^$username$") {
-                    $userNameExistsInPAM = $true
-                    break
+            if ($potentialOnboardCandidates) {
+                $userNameExistsInPAM = $false
+                foreach ($account in $potentialOnboardCandidates) {
+                    if ($account.Instance.userName -match "^$username$") {
+                        $userNameExistsInPAM = $true
+                        break
+                    }
+                }
+                if (!$userNameExistsInPAM) {
+                    $onboardCandidates += [PSCustomObject]@{
+                        Username = $username
+                        Address = $comp.ComputerName
+                        Platform = $comp.Platform
+                    }
                 }
             }
-            if (!$userNameExistsInPAM) {
+            else {
                 $onboardCandidates += [PSCustomObject]@{
                     Username = $username
                     Address = $comp.ComputerName
                     Platform = $comp.Platform
                 }
-            }
+            } 
         }
     }
 
@@ -1373,12 +1374,12 @@ Function Get-OffBoardingCandidates {
     )
 
     $offboardCandidates = @()
-    Write-Log -Type INF -Message "Determining offboarding candidates..."
+    Write-Log -Type INF -Message "Determining off-boarding candidates..."
     foreach ($account in $PAMAccounts) {
         $skipAccount = $false
         if ($IgnoreList) {
             foreach ($comp in $IgnoreList) {
-                if ($account.address -match "^$($comp.ComputerName).*$") {
+                if ($account.Instance.address -match "^$($comp.ComputerName).*$") {
                     $skipAccount = $true
                     break
                 }
@@ -1387,25 +1388,25 @@ Function Get-OffBoardingCandidates {
                 continue
             }
         }
-        $validAccount = $false
+        $validEndpoint = $false
         foreach ($comp in $EPMEndpoints) {
-            if ($account.address -match "^$($comp.ComputerName)$") {
-                $usernameList = @()
-                switch ($comp.Platform) {
-                    "Windows" { $usernameList = $EndpointUserNamesWin}
-                    "MacOS" { $usernameList = $EndpointUserNamesMac}
-                }
-                foreach ($username in $usernameList) {
-                    if ($account.userName -match "^$username$") {
-                        $validAccount = $true
-                        break
-                    }
-                }
+            if ($account.Instance.address -match "^$($comp.ComputerName)$") {
+                $validEndpoint = $true
                 break
             }
         }
-        if (!$validAccount) {
-            $offboardCandidates += $account
+        if (!$validEndpoint) {
+            $usernameList = @()
+            switch ($account.PlatformBaseID) {
+                "WinLooselyDevice" { $usernameList = $EndpointUserNamesWin }
+                "Unix" { $usernameList = $EndpointUserNamesMac }
+            }
+            foreach ($username in $usernameList) {
+                if ($account.Instance.userName -match "^$username$") {
+                    $offboardCandidates += $account.Instance
+                    break
+                }
+            }
         }
     }
     Write-Log -Type INF -Message "[$($offboardCandidates.Count)] account(s) identified for off-boarding"
