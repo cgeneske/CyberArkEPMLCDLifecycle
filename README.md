@@ -55,6 +55,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 5. Customize the script for your environment and desired outcome - See [Assigning Script Variables](#assigning-script-variables) 
 
 6. Run the script!
+    >**NOTE:** The script default is set to `$ReportOnlyMode = $true` which will result in no actions taken against CyberArk PAM.  It is **highly recommended** to maintain this run mode for the initial execution, and following any change to script variables, in order to review on-boarding and off-boarding candidates for accuracy.  Once satisfied with these results, switch to `$ReportOnlyMode = $false` to commit the respective lifecycle activities against CyberArk PAM.
 
 7. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
 
@@ -195,7 +196,7 @@ Screenshot examples of how this task might be setup, when run under a traditiona
 There are a series of script variables that must be set off default, to values that are pertinent to your executing environment.  These variables are declared in the `SCRIPT VARIABLES` region at the top of the script between the `### BEGIN CHANGE-ME SECTION ###` and `### END CHANGE-ME SECTION ###` comment markers:
 
 - `$ReportOnlyMode`
-    - When set to `$true` will report in console, log, and CSV, which accounts would be on-boarded to, and/or off-boarded from, PAM. This is a read-only run mode!
+    - When set to `$true` will report in console, log, and CSV, which accounts would be on-boarded to, and/or off-boarded from, PAM. **This is a read-only run mode!**
 - `$SkipOnBoarding`
     - When set to `$true` will skip the on-boarding logic.
 - `$SkipOffBoarding`
