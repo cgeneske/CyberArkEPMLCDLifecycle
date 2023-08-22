@@ -248,8 +248,8 @@ $CCPAppID = "EPM LCD Lifecycle"
 $LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
 $ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
 
-$PAMPageSize = 1000
-$EPMPageSize = 5000
+$PAMPageSize = 1000 #Maximum is 1,000
+$EPMPageSize = 5000 #Maximum is 5,000
 $MaximumDNSFailures = 10
 
 $PAMBaseURI = "https://$PAMHostname/PasswordVault"
@@ -762,6 +762,48 @@ Function Invoke-APILogoff {
     catch {
         Write-Log -Type WRN -Message "Unable to logoff PAM API - $($_.Exception.Message)"
     }
+} 
+
+Function Invoke-EPMRestMethod {
+    <#
+    .SYNOPSIS
+        Executes Invoke-RestMethod against the EPM API with throttle handling 
+    .DESCRIPTION
+        Executes Invoke-RestMethod against the EPM API.  When throttling has been detected, will
+        suspend and retry the API call until a success or unexpected failure has been received 
+    .PARAMETER Parameters
+        A Hashtable containing all of the desired Invoke-RestMethod parameters and their values
+    .EXAMPLE
+        Invoke-EPMRestMethod -Parameters $ht
+    .NOTES
+        Author: Craig Geneske
+    #>
+    Param(
+        [hashtable]$Parameters
+    )
+    $retryLimit = 20 #5 Minutes
+    $retryCount = 0
+    while ($retryCount -le $retryLimit) {
+        try {
+            $result = Invoke-RestMethod @Parameters
+            return $result
+        }
+        catch {
+            if ($_.ErrorDetails.Message -match "too many calls") {
+                $retryCount++
+                if ($retryCount -le $retryLimit) {
+                    Write-Log -Type WRN -Message "EPM API throttling detected, attempting retry [$retryCount] of [$retryLimit] in 15 seconds..."
+                    Start-Sleep -Seconds 15
+                }
+                continue
+            }
+            else {
+                throw
+            }
+        }
+    }
+
+    throw "EPM API throttle retry limit has been reached"
 }
 
 Function Get-PAMActiveLCDPlatforms {
@@ -925,6 +967,8 @@ Function Get-EPMComputers {
     .NOTES
         The following script-level variables are used:
             - $EPMSetIDs
+            - $EPMSetsListUrl
+            - $EPMComputersUrl
             - $ValidateDomainNamesDNS
             - $SkipIfNotInDNS
             - $MaximumDNSFailures
@@ -947,7 +991,13 @@ Function Get-EPMComputers {
 
     try{
         Write-Log -Type INF -Message "Getting all EPM Sets..."
-        $result = Invoke-RestMethod -Method Get -Uri ($ManagerURL + $EPMSetsListUrl) -Headers @{Authorization = "basic $($SessionToken)"} -ContentType "application/json"
+        $ParamsHt = @{
+            Method = "Get"
+            Uri = ($ManagerURL + $EPMSetsListUrl)
+            Headers = @{Authorization = "basic $($SessionToken)"}
+            ContentType = "application/json"
+        }
+        $result = Invoke-EPMRestMethod -Parameters $ParamsHt
         Write-Log -Type INF -Message "[$($result.SetsCount)] Sets found"
         if ($EPMSetIDs) {
             Write-Log -Type INF -Message "Confirming provided Set ID(s)..."
@@ -984,7 +1034,14 @@ Function Get-EPMComputers {
             $offset = 0
             do {
                 $result = $null
-                $result = Invoke-RestMethod -Method Get -Uri $computersUri -Headers @{Authorization = "basic $($SessionToken)"} -ContentType "application/json"
+                $paramsHt = $null
+                $paramsHt = @{
+                    Method = "Get"
+                    Uri = $computersUri
+                    Headers = @{Authorization = "basic $($SessionToken)"}
+                    ContentType = "application/json"
+                }
+                $result = Invoke-EPMRestMethod -Parameters $ParamsHt
                 foreach ($computer in $result.Computers) {
                     if ($computer.Platform -ne "Unknown") {
                         $computersCounter++
