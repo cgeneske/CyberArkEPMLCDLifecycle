@@ -261,6 +261,8 @@ There are a series of script variables that must be set off default, to values t
     >**NOTE:** The PAM API user's permissions will also dictate, and may limit, which Safes can and will be searched!
 - `$EPMSetIDs`
     - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
+- `$EPMRegion`
+    - The region of your EPM SaaS tenant.  Must be set to one of the following values:  US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA
 - `$PAMHostname`
     - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "subdomain.privilegecloud.cyberark.com")
 - `$IgnoreSSLCertErrors`

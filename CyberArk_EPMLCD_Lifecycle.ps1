@@ -106,6 +106,8 @@ SafeSearchList          - List of CyberArk Safes which will be searched for exis
 
 EPMSetIDs               - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
 
+EPMRegion               - The region of your EPM SaaS tenant.  Must be set to one of the following values:  US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA
+
 PAMHostname             - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "subdomain.privilegecloud.cyberark.com")
 
 IgnoreSSLCertErrors     - When set to "$true" will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection.
@@ -215,6 +217,7 @@ $OnboardingSafeMac = "EPM LCD Staging"
 $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = ""
 $EPMSetIDs = ""
+$EPMRegion = "US"
 $PAMHostname = "hostname"
 $IgnoreSSLCertErrors = $false
 
@@ -259,7 +262,7 @@ $PAMAuthLogoffUrl = $PAMBaseURI + "/api/auth/Logoff"
 $PAMAccountsUrl = $PAMBaseURI + "/api/Accounts"
 $PAMPlatformsUrl = $PAMBaseURI + "/api/Platforms"
 
-$EPMAuthLogonUrl = "https://login.epm.cyberark.com/EPM/API/Auth/EPM/Logon"
+$EPMAuthLogonUrl = "https://{0}.epm.cyberark.com/EPM/API/Auth/EPM/Logon"
 $EPMSetsListUrl = "/EPM/API/Sets"
 $EPMComputersUrl = "/EPM/API/Sets/{0}/Computers"
 
@@ -1320,7 +1323,32 @@ Function Confirm-ScriptVariables {
         Set-Variable -Name "SafeSearchlist" -Scope Script -Value ""
     }
 
-    Write-Log -Type INF -Message "Script Variables have been validated"
+    if ($EPMRegion) {
+        $regionList = @('US', 'AU', 'CA', 'EU', 'IN', 'IT', 'JP', 'SG', 'UK', 'BETA')
+        $validRegion = $false
+        foreach ($region in $regionList) {
+            if ($EPMRegion -match "^$region$") {
+                if ($region -match "^US$") {
+                    Set-Variable -Name "EPMAuthLogonUrl" -Scope Script -value ($EPMAuthLogonUrl -f "login")
+                }
+                else {
+                    Set-Variable -Name "EPMAuthLogonUrl" -Scope Script -value ($EPMAuthLogonUrl -f $region.ToLower())
+                }
+                $validRegion = $true
+                break
+            }
+        }
+        if (!$validRegion) {
+            Write-Log -Type ERR -Message "EPMRegion is not set to a valid value, one of the following regions must be defined: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
+            throw
+        }
+    }
+    else {
+        Write-Log -Type ERR -Message "EPMRegion is empty, one of the following regions must be defined: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
+        throw
+    }
+
+    Write-Log -Type INF -Message "Script variables have been successfully validated"
 }
 
 Function Get-OnBoardingCandidates {
@@ -1591,10 +1619,10 @@ try {
     $EPMSessionInfo = Invoke-APIAuthentication -App EPM
     $EPMEndpoints, $ignoreList = Get-EPMComputers -SessionToken $EPMSessionInfo.EPMAuthenticationResult -ManagerURL $EPMSessionInfo.ManagerURL
 
-    #Determine onboarding candidates
+    #Determine on-boarding candidates
     [PSObject[]]$onboardCandidates = Get-OnBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
 
-    #Determine offboarding candidates
+    #Determine off-boarding candidates
     [PSObject[]]$offboardCandidates = Get-OffBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints -IgnoreList $ignoreList
 
     #Printing report if in Report-Only mode, then exiting
@@ -1603,7 +1631,7 @@ try {
         exit
     }
 
-    #Onboarding Accounts to PAM
+    #On-boarding Accounts to PAM
     if ($onboardCandidates) {
         if (!$SkipOnBoarding) {
             Add-PAMAccounts -SessionToken $PAMSessionToken -AccountList $onboardCandidates
@@ -1613,7 +1641,7 @@ try {
         }
     }
 
-    #Offboarding Accounts from PAM
+    #Off-boarding Accounts from PAM
     if ($offboardCandidates) {
         if (!$SkipOffBoarding) {
             Remove-PAMAccounts -SessionToken $PAMSessionToken -AccountList $offboardCandidates
