@@ -164,13 +164,13 @@ When using `CyberArk PAM (CCP)` as the credential store, and when using:
     - The task may simply run as the `LOCAL SERVICE` account, with permissions being appropriately delegated to the client certificate's private key, as described in the section [CyberArk Central Credential Manager (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations) above.
 
 - `OS User` Authentication
-    - The task may run as a named domain (traditional) service account user, or as a Group-Managed Service Account (gMSA).
+    - The task may run as `NETWORK SERVICE`, a named domain (traditional) service account, or as a Group-Managed Service Account (gMSA).  When running as `NETWORK SERVICE`, the OS User entry on the CyberArk Application defined for this solution should be set to `<NB_DOMAIN_NAME>\<HOSTNAME>$`.  For example if the NetBIOS Domain Name was "CYBR" and the host's computer name was "CPM", then the OS User entry on the CyberArk Application defined for this solution should be `CYBR\CPM$`
 
 When using `Windows Credential Manager` as the credential store:
 
 - The task must run as a named local or domain (traditional) service account user that has temporary means to login to the solution host interactively, in order to populate the needed Credential Manager entries.  Once the Credential Manager has been populated for the service user as described above (see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)), interactive login (both locally and via remote desktop services) may be explicitly denied for the named service account.  Batch logon (the `"Log on as a batch job"` user rights assignment) is the only logon type required for execution via Scheduled Task.
 
-The Task should be created to `"Run whether user is logged on or not"` and set to `"Do not store password"`.
+The Task should be created to `"Run whether user is logged on or not"` and set to `"Do not store password"` when configuring with a traditional service account.  These settings are not applicable when using `LOCAL SERVICE` or `NETWORK SERVICE` as your executing context.
 
 The Task action should be set to start a program (`"powershell.exe"`) with the following arguments:
 
@@ -180,7 +180,7 @@ The Task action should be set to start a program (`"powershell.exe"`) with the f
 
 An "On a Schedule" task trigger may be defined.  The task may also be run on demand.
 
-A successful script execution will return with code `"0"` which will show in Task Scheduler's last run result as `"The operation has completed successfully (0x0)"`.  Any unexpected failure of the script, will return with a code of `"1"`
+A successful script execution will return with code `"0"` which will show in Task Scheduler's last run result as `"The operation has completed successfully (0x0)"`.  Any unexpected failure of the script, will return with a code of `"1"` (0x1)
 
 >**NOTE:** There will not be any interactive console output when running this utility from a Scheduled Task.  Instead, each execution will create and populate a log file under a solution-created `"Logs"` subfolder, which will be in the same directory that contains the solution's script file.  It is important that you ensure the executing context of this Scheduled Task has the needed NTFS permissions for this log file to be created!  You should refer to these log files for more details pertaining to the task's execution and any relative success or failure.
 

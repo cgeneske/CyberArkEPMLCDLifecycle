@@ -946,6 +946,9 @@ Function Get-PAMLCDAccounts {
             while ($result.nextLink)
         }
         Write-Log -Type INF -Message "PAM account search complete, [$candidatesCounter] LCD accounts found out of [$accountsCounter] total accounts"
+        if ($accountsCounter -eq 0) {
+            Write-Log -Type WRN -Message "No accounts were found in PAM!  If this is unexpected, ensure your PAM API user has been granted the required privileges to the Safes in scope for LCD"
+        }
         return $PAMAccountsList
     }
     catch {
