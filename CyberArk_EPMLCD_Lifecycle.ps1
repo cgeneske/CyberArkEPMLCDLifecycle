@@ -186,7 +186,7 @@ AUTHOR:
 Craig Geneske
 
 VERSION HISTORY:
-1.0 8/10/2023 - Initial Release
+1.0 8/24/2023 - Initial Release
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -579,6 +579,7 @@ Function Get-APICredential {
 
     switch ($APIUserSource) {
         ([APIUserSource]::CyberArkCCP) {
+            Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from CCP..."
             $result = $null
             $CCPGetCredentialUrl = $null
             
@@ -622,7 +623,6 @@ Function Get-APICredential {
             }
         
             try {
-                Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from CCP..."
                 $result = Invoke-RestMethod @methodArgs
                 if ($result.UserName -and $result.Content) {
                     Write-Log -Type INF -Message "Successfully retrieved the [$App] API credential from CCP"
@@ -641,6 +641,7 @@ Function Get-APICredential {
             }
         }
         ([APIUserSource]::WinCredMgr) {
+            Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from Windows Credential Manager..."
             $credTarget = $null
             switch ($App) {
                 "PAM" {
@@ -651,7 +652,6 @@ Function Get-APICredential {
                 }
             }
             try {
-                Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from Windows Credential Manager..."
                 $cred = [CredManager.Utility]::GetUserCredential($credTarget)
                 Write-Log -Type INF -Message "Successfully retrieved the [$App] API credential from Windows Credential Manager"
                 return [PSCustomObject]@{
@@ -665,7 +665,7 @@ Function Get-APICredential {
             }
         }
         Default {
-            Write-Log -Type ERR -Message "Failed to retrieve [$App] API User details - API User Source [$APIUserSource] has not been implemented"
+            Write-Log -Type ERR -Message "Unable to retrieve [$App] API User details - API User Source [$APIUserSource] has not been implemented"
             throw
         }
     }

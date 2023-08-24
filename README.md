@@ -419,11 +419,13 @@ The example scenario below is configured with the following environment-specific
 
 - Report-Only Mode is Enabled, so **<u>no actual on/off-boarding</u>** will take place during this execution
 - We will use all sets in EPM
+- The EPM Region/Datacenter is US
 - All Safes that the PAM API user has access to, will be searched for existing LCD accounts
 - Named accounts that will exist on every Windows endpoint are `Administrator` and `X_Admin`
 - The named account that will exist on every Mac endpoint is `mac_admin`
 - The default `Windows Loosely Device` and `Mac Loosely Device` Platforms are used for on-boarding
-- The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com`
+- The Safe in CyberArk PAM that will be used for on-boarding is named `EPM LCD Staging`
+- The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com` (i.e. https://`pam.cybr.com`/PasswordVault)
 - Use DNS lookup to determine endpoint FQDN, and use the host's Suffix Search List for this effort
     - If an endpoint cannot be DNS resolved, assume it has no domain name for on/off-boarding consideration
 - Use CyberArk PAM (CCP) to retrieve the PAM and EPM API credentials
@@ -434,11 +436,12 @@ The example scenario below is configured with the following environment-specific
 
 ### Example Outputs and Result
 
-- One (1) EPM Computer [Windows Platform] was found across two (2) EPM Sets; hostname of `CLIENT02`
-- This EPM Computer was successfully DNS resolved to FQDN `CLIENT02.cybr.com`
-- One (1) LCD-based account out of eighty (80) total accounts were found as existing in PAM
-    - This one (1) existing LCD-based account is `Administrator` for `CLIENT02.cybr.com`
-- Only `X_Admin` for `CLIENT02.cybr.com` was found to not exist in PAM, and is reported for on-boarding
+- Two (2) EPM Computers [Windows Platform] were found across two (2) EPM Sets; hostnames of `CLIENT02` and `DBSVR`
+- Both EPM Computers were successfully DNS resolved to FQDN `CLIENT02.cybr.com` and `DBSVR.cybr.com`
+- Three (3) LCD-based accounts out of eighty-three (83) total accounts were found as existing in PAM
+    - These three (3) existing LCD-based accounts are `Administrator` for `CLIENT02.cybr.com` and `DBSVR.cybr.com`, along with one other custom account/username that was added outside of this utility (and will thus, not be managed by this utility)
+- Only `X_Admin` for `CLIENT02.cybr.com` and `DBSVR.cybr.com` were found to not exist in PAM, and are reported for on-boarding
+- Nothing has been identified for off-boarding
 
 ![Example Output](images/outputexample.png)
 
