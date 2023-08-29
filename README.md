@@ -20,7 +20,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
-- Configurable safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental issues
+- Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
 
 # Environment Setup
 

@@ -33,6 +33,7 @@ Key Features:
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
+- Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
 
 
 Requirements:
