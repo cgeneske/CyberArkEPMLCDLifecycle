@@ -186,7 +186,8 @@ AUTHOR:
 Craig Geneske
 
 VERSION HISTORY:
-1.0 8/24/2023 - Initial Release
+1.0     8/24/2023   - Initial Release
+1.0.1   8/29/2023   - Added safety mechanism
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -218,7 +219,7 @@ $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = ""
 $EPMSetIDs = ""
 $EPMRegion = "US"
-$PAMHostname = "hostname"
+$PAMHostname = "pam.cybr.com"
 $IgnoreSSLCertErrors = $false
 
 #Dynamic FQDN Lookup Options
@@ -239,20 +240,26 @@ $PAMAccountName = "lifecycle_pam_api.pass"
 $PAMObjectSafe = "EPM Lifecycle API"
 $EPMAccountName = "lifecycle_epm_api.pass"
 $EPMObjectSafe = "EPM Lifecycle API"
-$CCPHostname = "hostname"
+$CCPHostname = "pam.cybr.com"
 $CCPPort = 443
-$CCPServiceRoot = "AIMWebService"
+$CCPServiceRoot = "AIMWebServiceIWA"
 $CCPAppID = "EPM LCD Lifecycle"
 
 #############################
 ### END CHANGE-ME SECTION ###
 #############################
 
-$LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
-$ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
+$LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_EPMLCD_Lifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
+$ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_EPMLCD_Lifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
+$DatFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\CyberArk_EPMLCD_Lifecycle.dat"
 
-$PAMPageSize = 1000 #Maximum is 1,000
-$EPMPageSize = 5000 #Maximum is 5,000
+$EnableSafety = $true
+$SafetyTriggered = $false
+$SafetyThresholdEPM = 0.10 # 10%
+$SafetyThresholdPAM = 0.10 # 10%
+
+$PAMPageSize = 1000 # Maximum is 1,000
+$EPMPageSize = 5000 # Maximum is 5,000
 $MaximumDNSFailures = 10
 
 $PAMBaseURI = "https://$PAMHostname/PasswordVault"
@@ -946,15 +953,16 @@ Function Get-PAMLCDAccounts {
             while ($result.nextLink)
         }
         Write-Log -Type INF -Message "PAM account search complete, [$candidatesCounter] LCD accounts found out of [$accountsCounter] total accounts"
-        if ($accountsCounter -eq 0) {
-            Write-Log -Type WRN -Message "No accounts were found in PAM!  If this is unexpected, ensure your PAM API user has been granted the required privileges to the Safes that are in scope for LCD"
-        }
-        return $PAMAccountsList
     }
     catch {
         Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to get PAM accounts associated with an active LCD platform"
         throw
     }
+    if ($accountsCounter -eq 0) {
+        Write-Log -Type WRN -Message "No accounts were found in PAM!  If this is unexpected, ensure your PAM API user has been granted the required privileges to the Safes that are in scope for LCD"
+    }
+    Compare-ChangeFactor -PropertyName PAMAccounts -Threshold $SafetyThresholdPAM -Value $PAMAccountsList.Count
+    return $PAMAccountsList
 }
 
 Function Get-EPMComputers {
@@ -1145,6 +1153,7 @@ Function Get-EPMComputers {
         }
     }
     Write-Log -Type INF -Message "EPM computer qualification complete"
+    Compare-ChangeFactor -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value ($qualifiedComps.Count + $ignoreList.Count)
     return $qualifiedComps, $ignoreList
 }
 
@@ -1213,6 +1222,7 @@ Function Add-PAMAccounts {
     Write-Log -Type INF -Message "#                             #"
     Write-Log -Type INF -Message "###############################"
     Write-Log -Type INF -Message "[$onboardedTotal] of [$($AccountList.Count)] accounts were successfully on-boarded"
+    Update-DatFile -PropertyName PAMAccounts -Value $onboardedTotal -Append
 }
 
 Function Remove-PAMAccounts {
@@ -1266,6 +1276,7 @@ Function Remove-PAMAccounts {
     Write-Log -Type INF -Message "#                                #"
     Write-Log -Type INF -Message "##################################"
     Write-Log -Type INF -Message "[$offboardTotal] of [$($AccountList.Count)] accounts were successfully off-boarded"
+    Update-DatFile -PropertyName PAMAccounts -Value $(-$offboardTotal) -Append
 }
 
 Function Confirm-ScriptVariables {
@@ -1350,8 +1361,128 @@ Function Confirm-ScriptVariables {
         Write-Log -Type ERR -Message "EPMRegion is empty, one of the following regions must be defined: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
         throw
     }
+    
+    if (!$EnableSafety) {
+        Write-Log -Type WRN -Message "SAFETY IS DISABLED!  DAT file will be updated with values from this execution.  It is not recommended to remain in this state indefinitely!"
+    }
 
     Write-Log -Type INF -Message "Script variables have been successfully validated"
+}
+
+Function Compare-ChangeFactor {
+     <#
+    .SYNOPSIS
+        Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold
+    .DESCRIPTION
+        Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold
+    .PARAMETER PropertyName
+        Name of the property within the DAT file to look for
+    .PARAMETER Threshold
+        The threshold to be used in the comparison
+    .PARAMETER Value
+        Value to use for comparison
+    .EXAMPLE
+        Compare-ChangeFactor -PropertyName "EPMComputers" -Threshold 0.10 -Value 123
+    .NOTES
+        The following script-level variables are used:
+            - $DatFilePath
+            - $EnableSafety
+            - $SafetyThreshold
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("EPMComputers","PAMAccounts")]
+        [string]$PropertyName,
+
+        [Parameter(Mandatory = $true)]
+        [double]$Threshold,
+        
+        [Parameter(Mandatory = $true)]
+        [int]$Value
+    )
+
+    try{
+        $datFile = Get-Content -Path $DatFilePath | ConvertFrom-Json
+        if (!$datFile.$PropertyName) {
+            throw "DAT file does not contain the [$PropertyName] property, please delete the DAT file and try again"
+        }
+    }
+    catch {
+        Write-Log -Type ERR -Message "Something went wrong processing the DAT file --> $($_.ErrorDetails.Message)"
+        throw
+    }
+    if($datFile.$PropertyName -ne -1) {
+        $changeFactor = [Math]::Abs($value - $datFile.$PropertyName) / $datfile.$PropertyName
+        if ($changeFactor -ge $Threshold) {
+            if ($ReportOnlyMode) {
+                if ($EnableSafety) {
+                    Set-Variable -Name SafetyTriggered -Scope Script -Value $true
+                    Write-Log -Type WRN "There has been a change of [$($Value - $datFile.$PropertyName) ($("{0:D2}" -f [int]($changeFactor * 100))%)] for [$PropertyName] and this will exceed the configured safety threshold of [$("{0:N2}" -f $Threshold) ($($Threshold * 100)%)] in production mode"
+                    return
+                }
+            }
+            else {
+                if($EnableSafety) {
+                    Write-Log -Type ERR "There has been a change of [$($Value - $datFile.$PropertyName) ($("{0:D2}" -f [int]($changeFactor * 100))%)] for [$PropertyName] and this exceeds the configured safety threshold of [$("{0:N2}" -f $Threshold) ($($Threshold * 100)%)]"
+                    throw
+                }
+            }
+        }
+    }
+    Update-DatFile -PropertyName $PropertyName -Value $Value
+}
+
+Function Update-DatFile {
+      <#
+    .SYNOPSIS
+        Updates a named property in the dat file (JSON)
+    .DESCRIPTION
+        Updates a named property in the dat file (JSON)
+    .PARAMETER PropertyName
+        Name of the property within the dat file whose value needs updating
+    .PARAMETER Value
+        Value that the property should be updatd to
+    .PARAMETER Append
+        Whether the input Value should be added to the existing Value
+    .EXAMPLE
+        Update-DatFile -PropertyName "EPMComputers" -Value 123
+    .NOTES
+        The following script-level variables are used:
+            - $DatFilePath
+
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("EPMComputers","PAMAccounts")]
+        [string]$PropertyName,
+        
+        [Parameter(Mandatory = $true)]
+        [int]$Value,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Append
+    )
+    
+    try{
+        $datFile = Get-Content -Path $DatFilePath | ConvertFrom-Json
+        if (!$datFile.$PropertyName) {
+            throw "Dat file does not contain the [$PropertyName] property, please delete the dat file and try again"
+        }
+        if ($Append) {
+            $datFile.$PropertyName = [int]$datFile.$PropertyName + $Value
+    
+        }
+        else {
+            $datFile.$PropertyName = $Value
+        }
+        Set-Content -Path $DatFilePath -Value ($datFile | ConvertTo-Json)
+    }
+    catch {
+        Write-Log -Type ERR -Message "Something went wrong processing the dat file --> $($_.ErrorDetails.Message)"
+        throw
+    }
 }
 
 Function Get-OnBoardingCandidates {
@@ -1575,6 +1706,10 @@ Function Write-PAMLifecycleReport {
     else {
         Write-Log -Type INF -Message "No endpoints have been ignored"
     }
+    if($SafetyTriggered) {
+        Write-Log -Type WRN -Message "--> SAFETY TRIGGERED <--"
+        Write-Log -Type WRN -Message "EPM Computers or PAM accounts have changed by more than [$($SafetyThreshold * 100)%] from last execution.  See log entry above for more details"
+    }
     Write-Log -Type INF -Message "###################################################################"
 }
 
@@ -1601,6 +1736,21 @@ else {
 
 try {
     Confirm-ScriptVariables
+
+    if (!(Test-Path -Path $DatFilePath)) {
+        try {
+            New-Item -Path $DatFilePath -Force -ErrorAction Stop *> $null
+            $datFileSeed = [PSCustomObject]@{
+                EPMComputers = -1
+                PAMAccounts = -1
+            } | ConvertTo-Json
+            Add-Content -Path $DatFilePath -Value $datFileSeed
+        }
+        catch {
+            Write-Host "Unable to create DAT file, aborting script --> $($_.Exception.Message)"
+            exit -1
+        }
+    }
 
     $PAMSessionToken = Invoke-APIAuthentication -App PAM
 
