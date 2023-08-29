@@ -220,7 +220,7 @@ $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = ""
 $EPMSetIDs = ""
 $EPMRegion = "US"
-$PAMHostname = "pam.cybr.com"
+$PAMHostname = "hostname"
 $IgnoreSSLCertErrors = $false
 
 #Dynamic FQDN Lookup Options
@@ -241,9 +241,9 @@ $PAMAccountName = "lifecycle_pam_api.pass"
 $PAMObjectSafe = "EPM Lifecycle API"
 $EPMAccountName = "lifecycle_epm_api.pass"
 $EPMObjectSafe = "EPM Lifecycle API"
-$CCPHostname = "pam.cybr.com"
+$CCPHostname = "hostname"
 $CCPPort = 443
-$CCPServiceRoot = "AIMWebServiceIWA"
+$CCPServiceRoot = "AIMWebService"
 $CCPAppID = "EPM LCD Lifecycle"
 
 #############################
