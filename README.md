@@ -380,12 +380,12 @@ Additionally, you may review the output provided in report-only mode and declare
 
 It is generally **not recommended** to disable the safety mechanism for any extended period, but this option remains available in case no amount of threshold tuning would be suitable for the given environment or use-cases presenting.
 
-## Logging
-Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  These log files are created automatically in a `"Logs"` subfolder ( created automatically by the solution), in the same directory that contains the script file.
+## Logging and Reporting
+Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  Log files will follow a naming convention of `<SCRIPT NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.log`.  These log files are created in a `"Logs"` subfolder which will be created by the utility if it does not exist, in the same directory that contains the script file.
 
-Additionally, when `$ReportOnlyMode` is set to `$true`, a CSV file containing all accounts that are candidates for on-boarding and/or off-boarding is supplied, to simplify any subsequent data processing and review.
+A CSV report containing all accounts that are candidates for on-boarding (when running in Report-Only mode) or where on/off-boarding was attmepted (with either success or failure) is supplied with each execution, to simplify any subsequent data processing and review.  Report files will folow a naming convention of `<SCRIPT_NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.csv` for standard executions, and will include a `_RO.csv` tail for Report-Only executions.  These CSV reports are created automatically in a `"Reports"` subfolder, which will be created by the utility if it does not exist, in the same directory that contains the script file.
 
->**NOTE:** The script will immediately abort if the log file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs folder and log files within.  Run the script interactively to observe the error you're receiving in console, if this should occur.
+>**NOTE:** The script will immediately abort if the log file or report file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs and Reports folder, along with the respective files within.  Run the script interactively to observe the error you're receiving in console, if this should occur.
 
 ## Advanced Domain Name EPM Set Targeting and Process Scoping
 Unfortunately, at present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:

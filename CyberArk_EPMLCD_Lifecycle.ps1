@@ -250,9 +250,9 @@ $CCPAppID = "EPM LCD Lifecycle"
 ### END CHANGE-ME SECTION ###
 #############################
 
-$LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_EPMLCD_Lifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
-$ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_EPMLCD_Lifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
-$DatFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\CyberArk_EPMLCD_Lifecycle.dat"
+$LogFilePath = $PSScriptRoot + "\Logs\$($MyInvocation.MyCommand.Name.Substring(0, $MyInvocation.MyCommand.Name.Length - 4))_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
+$ReportFilePath = $PSScriptRoot + "\Reports\$($MyInvocation.MyCommand.Name.Substring(0, $MyInvocation.MyCommand.Name.Length - 4))_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
+$DatFilePath = $($PSCommandPath).Substring(0, $PSCommandPath.Length - 4) + ".dat"
 
 $EnableSafety = $true
 $SafetyTriggered = $false
@@ -480,16 +480,7 @@ Function Write-Log {
     Write-Host $eventString -ForegroundColor $eventColor
 
     #Logfile Output (Non-Interactive)
-    if (!(Test-Path -Path $LogFilePath)) {
-        try {
-            New-Item -Path $LogFilePath -Force -ErrorAction Stop *> $null
-        }
-        catch {
-            Write-Host "Unable to create log file, aborting script --> $($_.Exception.Message)"
-            exit -1
-        }
-    }
-    Add-Content -Path $LogFilePath -Value $eventString
+    Add-Content -Path $LogFilePath -Value $eventString -ErrorAction SilentlyContinue *> $null
 }
 
 Function Invoke-ParseFailureResponse {
@@ -1208,11 +1199,13 @@ Function Add-PAMAccounts {
             $body = $body | ConvertTo-Json
             Write-Log -Type INF -Message "On-boarding account [$($account.UserName)@$($account.Address)] to PAM..."
             Invoke-RestMethod -Method Post -Uri $PAMAccountsUrl -Body $body -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Onboarding,Success" -ErrorAction SilentlyContinue *> $null
             $onboardedTotal++
         }
         catch {
             #TODO: If exception caused by invalid PAM Session we should abort, otherwise, treat as non-fatal and continue.
             Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to on-board account [$($account.UserName)@$($account.Address)] to PAM"
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Onboarding,Failed" -ErrorAction SilentlyContinue *> $null
             $Error.Clear()
             continue
         }
@@ -1262,11 +1255,13 @@ Function Remove-PAMAccounts {
         try {
             Write-Log -Type INF -Message "Off-boarding account [$($account.id) - $($account.UserName)@$($account.Address)] from PAM..."
             Invoke-RestMethod -Method Delete -Uri ($PAMAccountsUrl + "/$($account.id)/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Offboarding,Success" -ErrorAction SilentlyContinue *> $null
             $offboardTotal++
         }
         catch {
             #TODO: If exception caused by invalid PAM Session we should abort, otherwise, treat as non-fatal and continue.
             Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to off-board account [$($account.UserName)@$($account.Address)] from PAM"
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Offboarding,Failed" -ErrorAction SilentlyContinue *> $null
             $Error.Clear()
             continue
         }
@@ -1671,15 +1666,11 @@ Function Write-PAMLifecycleReport {
     Write-Log -Type INF -Message "#  REPORT ONLY MODE DETECTED!  Sending results to log and CSV...  #"
     Write-Log -Type INF -Message "#                                                                 #"
     Write-Log -Type INF -Message "###################################################################"
-    if (!(Test-Path -Path $ReportFilePath)) {
-        New-Item -Path $ReportFilePath -Force *> $null
-    }
-    Add-Content -Path $ReportFilePath -Value "Username,Address,Action"
     if ($OnboardCandidates) {
         Write-Log -Type INF -Message "The following [$($OnboardCandidates.Count)] account(s) have been identified for on-boarding:"
         foreach ($candidate in $OnboardCandidates) {
             Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding"
+            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding,Reported" -ErrorAction SilentlyContinue *> $null
         }
     }
     else {
@@ -1690,7 +1681,7 @@ Function Write-PAMLifecycleReport {
         Write-Log -Type INF -Message "The following [$($OffboardCandidates.Count)] account(s) have been identified for off-boarding:"
         foreach ($candidate in $OffboardCandidates) {
             Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding"
+            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding,Reported" -ErrorAction SilentlyContinue *> $null
         }
     }
     else {
@@ -1701,7 +1692,7 @@ Function Write-PAMLifecycleReport {
         Write-Log -Type INF -Message "The following [$($ignoreList.Count)] endpoint(s) were ignored as they were unresolved via DNS:"
         foreach ($comp in $ignoreList) {
             Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
-            Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored"
+            Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored,Reported" -ErrorAction SilentlyContinue *> $null
         }
     }
     else {
@@ -1722,6 +1713,44 @@ $PAMSessionToken = $null
 $EPMSessionToken = $null
 $Error.Clear()
 
+#Create Log File
+try {
+    New-Item -Path $LogFilePath -Force -ErrorAction Stop *> $null
+}
+catch {
+    Write-Host "Unable to create log file at [$LogFilePath], aborting script --> $($_.Exception.Message)"
+    exit 1
+}
+
+#Create Report File
+try{
+    if ($ReportOnlyMode) {
+        Set-Variable -Name ReportFilePath -Scope Script -Value ($ReportFilePath.Substring(0,$ReportFilePath.Length - 4) + "_RO.csv")
+    }
+    New-Item -Path $ReportFilePath -Force -ErrorAction Stop *> $null
+    Add-Content -Path $ReportFilePath -Value "Username,Address,Action,Status" -ErrorAction Stop
+}
+catch {
+    Write-Log -Type ERR -Message "Unable to create report file at [$ReportFilePath], aborting script --> $($_.Exception.Message)"
+    exit 1
+}
+
+#Create DAT File
+if (!(Test-Path -Path $DatFilePath)) {
+    try {
+        New-Item -Path $DatFilePath -Force -ErrorAction Stop *> $null
+        $datFileSeed = [PSCustomObject]@{
+            EPMComputers = -1
+            PAMAccounts = -1
+        } | ConvertTo-Json
+        Add-Content -Path $DatFilePath -Value $datFileSeed
+    }
+    catch {
+        Write-Host "Unable to create DAT file at [$DatFilePath], aborting script --> $($_.Exception.Message)"
+        exit 1
+    }
+}
+
 #Print Log/Console Header
 Write-Log -Header
 
@@ -1737,21 +1766,6 @@ else {
 
 try {
     Confirm-ScriptVariables
-
-    if (!(Test-Path -Path $DatFilePath)) {
-        try {
-            New-Item -Path $DatFilePath -Force -ErrorAction Stop *> $null
-            $datFileSeed = [PSCustomObject]@{
-                EPMComputers = -1
-                PAMAccounts = -1
-            } | ConvertTo-Json
-            Add-Content -Path $DatFilePath -Value $datFileSeed
-        }
-        catch {
-            Write-Host "Unable to create DAT file, aborting script --> $($_.Exception.Message)"
-            exit -1
-        }
-    }
 
     $PAMSessionToken = Invoke-APIAuthentication -App PAM
 
