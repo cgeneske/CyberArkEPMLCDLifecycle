@@ -20,6 +20,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
+- Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
 
 # Environment Setup
 
@@ -355,6 +356,37 @@ There are a series of script variables that must be set off default, to values t
 
 # Usage and Examples
 
+## Safety Mechanism
+By design, this utility has the potential to make sweeping changes to the PAM account landscape.  Ideally, we desire to accommodate the situations that are reasonably expected and to likewise prevent those that might not be.  An example of an expected situation would be during the initial setup of this very utility.  An example of an unexpected situation might be the sudden change in privileges of the API user(s), which could result in a mass on-boarding of duplicates or mass off-boarding of accounts, brought by the API user's lack of proper visibility into its respective API.  To account for the unexpected, a safety mechanism has been provided.
+
+The quantity of PAM Accounts (LCD) and EPM Computers as obtained from the previous successful execution, are maintained in a DAT file that is co-located with the script `CyberArk_EPMLCD_Lifecycle.dat`.  When this baseline is compared against values obtained during the current execution, if there is a change delta that's greater than the defined threshold, the script will either warn you (when in report-only mode) or abort execution entirely to prevent sweeping changes in PAM.
+
+By default, the thresholds for PAM Accounts and EPM Computers are set to **<u>10%</u>** (`0.10`), but these values can be adjusted by changing the definition of the following Script Variables:
+
+```powershell
+$SafetyThresholdPAM = 0.10
+$SafetyThresholdEPM = 0.10
+```
+
+For most environments, these default values should provide adequate safety however it may be necessary to adjust to better suit your environmental needs.  If you are managing LCD accounts outside of this utility for example, it may be necessary to increase the PAM threshold to buffer those activities.  And depending on your environment's overall size, larger or smaller thresholds may be desirable; only you know your expected rate of change best!
+
+Additionally, you may review the output provided in report-only mode and declare that the expected on/off-boarding actions are appropriate, despite having triggered the threshold.  In this situation, you have three options:
+
+1. Increase the respective threshold, if just temporarily, to allow execution to proceed
+
+2. Delete the `CyberArk_EPMLCD_Lifecycle.dat` file, which will trigger a new baseline capture.  This can also be done while remaining in Report-Only mode to ensure once more, that the expected actions are appropriate
+
+3. Disable the safety mechanism entirely by setting `$EnableSafety = $false` in the Script Variables section
+
+It is generally **not recommended** to disable the safety mechanism for any extended period, but this option remains available in case no amount of threshold tuning would be suitable for the given environment or use-cases presenting.
+
+## Logging and Reporting
+Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  Log files will follow a naming convention of `<SCRIPT NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.log`.  These log files are created in a `"Logs"` subfolder which will be created by the utility if it does not exist, in the same directory that contains the script file.
+
+A CSV report is generated containing all accounts that are candidates for on/off-boarding when running in Report-Only mode.  When running in production mode, the report will contain all accounts wherein on/off-boarding was attempted, along with its success or failure.  These reports are intended to simplify any subsequent data processing and review over lifecycle activities.  Report files will follow a naming convention of `<SCRIPT_NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.csv` for standard executions, and will include a `_RO.csv` tail for Report-Only executions.  These CSV reports are created automatically in a `"Reports"` subfolder, which will be created by the utility if it does not exist, in the same directory that contains the script file.
+
+>**NOTE:** The script will immediately abort if the log file or report file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs and Reports folder, along with the respective files within.  Run the script interactively to observe the error you're receiving in console if this should occur.
+
 ## Advanced Domain Name EPM Set Targeting and Process Scoping
 Unfortunately, at present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
 
@@ -393,13 +425,6 @@ Illustrated below is a two-domain example where EPM contains endpoints may have 
         ...
         ```
 These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false off-boarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
-
-## Logging
-Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  These log files are created automatically in a `"Logs"` subfolder ( created automatically by the solution), in the same directory that contains the script file.
-
-Additionally, when `$ReportOnlyMode` is set to `$true`, a CSV file containing all accounts that are candidates for on-boarding and/or off-boarding is supplied, to simplify any subsequent data processing and review.
-
->**NOTE:** The script will immediately abort if the log file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs folder and log files within.  Run the script interactively to observe the error you're receiving in console, if this should occur.
 
 ## Limitations and Known Issues
 ### ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*

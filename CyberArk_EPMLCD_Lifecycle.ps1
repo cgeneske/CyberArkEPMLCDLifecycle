@@ -33,6 +33,7 @@ Key Features:
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
+- Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
 
 
 Requirements:
@@ -186,7 +187,8 @@ AUTHOR:
 Craig Geneske
 
 VERSION HISTORY:
-1.0 8/24/2023 - Initial Release
+1.0     8/24/2023   - Initial Release
+1.0.1   8/29/2023   - Added safety mechanism
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -248,11 +250,17 @@ $CCPAppID = "EPM LCD Lifecycle"
 ### END CHANGE-ME SECTION ###
 #############################
 
-$LogFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
-$ReportFilePath = $($PSCommandPath).Substring(0, $($PSCommandPath).LastIndexOf('\')) + "\Logs\CyberArk_LCDLifecycle_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
+$LogFilePath = $PSScriptRoot + "\Logs\$($MyInvocation.MyCommand.Name.Substring(0, $MyInvocation.MyCommand.Name.Length - 4))_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
+$ReportFilePath = $PSScriptRoot + "\Reports\$($MyInvocation.MyCommand.Name.Substring(0, $MyInvocation.MyCommand.Name.Length - 4))_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
+$DatFilePath = $($PSCommandPath).Substring(0, $PSCommandPath.Length - 4) + ".dat"
 
-$PAMPageSize = 1000 #Maximum is 1,000
-$EPMPageSize = 5000 #Maximum is 5,000
+$EnableSafety = $true
+$SafetyTriggered = $false
+$SafetyThresholdEPM = 0.10 # 10%
+$SafetyThresholdPAM = 0.10 # 10%
+
+$PAMPageSize = 1000 # Maximum is 1,000
+$EPMPageSize = 5000 # Maximum is 5,000
 $MaximumDNSFailures = 10
 
 $PAMBaseURI = "https://$PAMHostname/PasswordVault"
@@ -472,16 +480,7 @@ Function Write-Log {
     Write-Host $eventString -ForegroundColor $eventColor
 
     #Logfile Output (Non-Interactive)
-    if (!(Test-Path -Path $LogFilePath)) {
-        try {
-            New-Item -Path $LogFilePath -Force -ErrorAction Stop *> $null
-        }
-        catch {
-            Write-Host "Unable to create log file, aborting script --> $($_.Exception.Message)"
-            exit -1
-        }
-    }
-    Add-Content -Path $LogFilePath -Value $eventString
+    Add-Content -Path $LogFilePath -Value $eventString -ErrorAction SilentlyContinue *> $null
 }
 
 Function Invoke-ParseFailureResponse {
@@ -946,15 +945,16 @@ Function Get-PAMLCDAccounts {
             while ($result.nextLink)
         }
         Write-Log -Type INF -Message "PAM account search complete, [$candidatesCounter] LCD accounts found out of [$accountsCounter] total accounts"
-        if ($accountsCounter -eq 0) {
-            Write-Log -Type WRN -Message "No accounts were found in PAM!  If this is unexpected, ensure your PAM API user has been granted the required privileges to the Safes that are in scope for LCD"
-        }
-        return $PAMAccountsList
     }
     catch {
         Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to get PAM accounts associated with an active LCD platform"
         throw
     }
+    if ($accountsCounter -eq 0) {
+        Write-Log -Type WRN -Message "No accounts were found in PAM!  If this is unexpected, ensure your PAM API user has been granted the required privileges to the Safes that are in scope for LCD"
+    }
+    Compare-ChangeFactor -PropertyName PAMAccounts -Threshold $SafetyThresholdPAM -Value $PAMAccountsList.Count
+    return $PAMAccountsList
 }
 
 Function Get-EPMComputers {
@@ -1145,6 +1145,7 @@ Function Get-EPMComputers {
         }
     }
     Write-Log -Type INF -Message "EPM computer qualification complete"
+    Compare-ChangeFactor -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value ($qualifiedComps.Count + $ignoreList.Count)
     return $qualifiedComps, $ignoreList
 }
 
@@ -1198,11 +1199,13 @@ Function Add-PAMAccounts {
             $body = $body | ConvertTo-Json
             Write-Log -Type INF -Message "On-boarding account [$($account.UserName)@$($account.Address)] to PAM..."
             Invoke-RestMethod -Method Post -Uri $PAMAccountsUrl -Body $body -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Onboarding,Success" -ErrorAction SilentlyContinue *> $null
             $onboardedTotal++
         }
         catch {
             #TODO: If exception caused by invalid PAM Session we should abort, otherwise, treat as non-fatal and continue.
             Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to on-board account [$($account.UserName)@$($account.Address)] to PAM"
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Onboarding,Failed" -ErrorAction SilentlyContinue *> $null
             $Error.Clear()
             continue
         }
@@ -1213,6 +1216,7 @@ Function Add-PAMAccounts {
     Write-Log -Type INF -Message "#                             #"
     Write-Log -Type INF -Message "###############################"
     Write-Log -Type INF -Message "[$onboardedTotal] of [$($AccountList.Count)] accounts were successfully on-boarded"
+    Update-DatFile -PropertyName PAMAccounts -Value $onboardedTotal -Append
 }
 
 Function Remove-PAMAccounts {
@@ -1251,11 +1255,13 @@ Function Remove-PAMAccounts {
         try {
             Write-Log -Type INF -Message "Off-boarding account [$($account.id) - $($account.UserName)@$($account.Address)] from PAM..."
             Invoke-RestMethod -Method Delete -Uri ($PAMAccountsUrl + "/$($account.id)/") -Headers @{Authorization = $SessionToken} -ContentType "application/json" *> $null
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Offboarding,Success" -ErrorAction SilentlyContinue *> $null
             $offboardTotal++
         }
         catch {
             #TODO: If exception caused by invalid PAM Session we should abort, otherwise, treat as non-fatal and continue.
             Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to off-board account [$($account.UserName)@$($account.Address)] from PAM"
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),Offboarding,Failed" -ErrorAction SilentlyContinue *> $null
             $Error.Clear()
             continue
         }
@@ -1266,6 +1272,7 @@ Function Remove-PAMAccounts {
     Write-Log -Type INF -Message "#                                #"
     Write-Log -Type INF -Message "##################################"
     Write-Log -Type INF -Message "[$offboardTotal] of [$($AccountList.Count)] accounts were successfully off-boarded"
+    Update-DatFile -PropertyName PAMAccounts -Value $(-$offboardTotal) -Append
 }
 
 Function Confirm-ScriptVariables {
@@ -1350,8 +1357,128 @@ Function Confirm-ScriptVariables {
         Write-Log -Type ERR -Message "EPMRegion is empty, one of the following regions must be defined: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
         throw
     }
+    
+    if (!$EnableSafety) {
+        Write-Log -Type WRN -Message "SAFETY IS DISABLED!  DAT file will be updated with values from this execution.  It is not recommended to remain in this state indefinitely!"
+    }
 
     Write-Log -Type INF -Message "Script variables have been successfully validated"
+}
+
+Function Compare-ChangeFactor {
+     <#
+    .SYNOPSIS
+        Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold
+    .DESCRIPTION
+        Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold
+    .PARAMETER PropertyName
+        Name of the property within the DAT file to look for
+    .PARAMETER Threshold
+        The threshold to be used in the comparison
+    .PARAMETER Value
+        Value to use for comparison
+    .EXAMPLE
+        Compare-ChangeFactor -PropertyName "EPMComputers" -Threshold 0.10 -Value 123
+    .NOTES
+        The following script-level variables are used:
+            - $DatFilePath
+            - $EnableSafety
+            - $SafetyThreshold
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("EPMComputers","PAMAccounts")]
+        [string]$PropertyName,
+
+        [Parameter(Mandatory = $true)]
+        [double]$Threshold,
+        
+        [Parameter(Mandatory = $true)]
+        [int]$Value
+    )
+
+    try{
+        $datFile = Get-Content -Path $DatFilePath | ConvertFrom-Json
+        if (!$datFile.$PropertyName) {
+            throw "DAT file does not contain the [$PropertyName] property, please delete the DAT file and try again"
+        }
+    }
+    catch {
+        Write-Log -Type ERR -Message "Something went wrong processing the DAT file --> $($_.ErrorDetails.Message)"
+        throw
+    }
+    if($datFile.$PropertyName -ne -1) {
+        $changeFactor = [Math]::Abs($value - $datFile.$PropertyName) / $datfile.$PropertyName
+        if ($changeFactor -ge $Threshold) {
+            if ($ReportOnlyMode) {
+                if ($EnableSafety) {
+                    Set-Variable -Name SafetyTriggered -Scope Script -Value $true
+                    Write-Log -Type WRN "There has been a change of [$($Value - $datFile.$PropertyName) ($("{0:D2}" -f [int]($changeFactor * 100))%)] for [$PropertyName] and this will exceed the configured safety threshold of [$("{0:N2}" -f $Threshold) ($($Threshold * 100)%)] in production mode"
+                    return
+                }
+            }
+            else {
+                if($EnableSafety) {
+                    Write-Log -Type ERR "There has been a change of [$($Value - $datFile.$PropertyName) ($("{0:D2}" -f [int]($changeFactor * 100))%)] for [$PropertyName] and this exceeds the configured safety threshold of [$("{0:N2}" -f $Threshold) ($($Threshold * 100)%)]"
+                    throw
+                }
+            }
+        }
+    }
+    Update-DatFile -PropertyName $PropertyName -Value $Value
+}
+
+Function Update-DatFile {
+      <#
+    .SYNOPSIS
+        Updates a named property in the dat file (JSON)
+    .DESCRIPTION
+        Updates a named property in the dat file (JSON)
+    .PARAMETER PropertyName
+        Name of the property within the dat file whose value needs updating
+    .PARAMETER Value
+        Value that the property should be updatd to
+    .PARAMETER Append
+        Whether the input Value should be added to the existing Value
+    .EXAMPLE
+        Update-DatFile -PropertyName "EPMComputers" -Value 123
+    .NOTES
+        The following script-level variables are used:
+            - $DatFilePath
+
+        Author: Craig Geneske
+    #>
+    Param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("EPMComputers","PAMAccounts")]
+        [string]$PropertyName,
+        
+        [Parameter(Mandatory = $true)]
+        [int]$Value,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Append
+    )
+    
+    try{
+        $datFile = Get-Content -Path $DatFilePath | ConvertFrom-Json
+        if (!$datFile.$PropertyName) {
+            throw "Dat file does not contain the [$PropertyName] property, please delete the dat file and try again"
+        }
+        if ($Append) {
+            $datFile.$PropertyName = [int]$datFile.$PropertyName + $Value
+    
+        }
+        else {
+            $datFile.$PropertyName = $Value
+        }
+        Set-Content -Path $DatFilePath -Value ($datFile | ConvertTo-Json)
+    }
+    catch {
+        Write-Log -Type ERR -Message "Something went wrong processing the dat file --> $($_.ErrorDetails.Message)"
+        throw
+    }
 }
 
 Function Get-OnBoardingCandidates {
@@ -1539,15 +1666,11 @@ Function Write-PAMLifecycleReport {
     Write-Log -Type INF -Message "#  REPORT ONLY MODE DETECTED!  Sending results to log and CSV...  #"
     Write-Log -Type INF -Message "#                                                                 #"
     Write-Log -Type INF -Message "###################################################################"
-    if (!(Test-Path -Path $ReportFilePath)) {
-        New-Item -Path $ReportFilePath -Force *> $null
-    }
-    Add-Content -Path $ReportFilePath -Value "Username,Address,Action"
     if ($OnboardCandidates) {
         Write-Log -Type INF -Message "The following [$($OnboardCandidates.Count)] account(s) have been identified for on-boarding:"
         foreach ($candidate in $OnboardCandidates) {
             Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding"
+            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Onboarding,Reported" -ErrorAction SilentlyContinue *> $null
         }
     }
     else {
@@ -1558,7 +1681,7 @@ Function Write-PAMLifecycleReport {
         Write-Log -Type INF -Message "The following [$($OffboardCandidates.Count)] account(s) have been identified for off-boarding:"
         foreach ($candidate in $OffboardCandidates) {
             Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding"
+            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),Offboarding,Reported" -ErrorAction SilentlyContinue *> $null
         }
     }
     else {
@@ -1569,11 +1692,15 @@ Function Write-PAMLifecycleReport {
         Write-Log -Type INF -Message "The following [$($ignoreList.Count)] endpoint(s) were ignored as they were unresolved via DNS:"
         foreach ($comp in $ignoreList) {
             Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
-            Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored"
+            Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),Ignored,Reported" -ErrorAction SilentlyContinue *> $null
         }
     }
     else {
         Write-Log -Type INF -Message "No endpoints have been ignored"
+    }
+    if($SafetyTriggered) {
+        Write-Log -Type WRN -Message "--> SAFETY TRIGGERED <--"
+        Write-Log -Type WRN -Message "EPM Computers or PAM accounts have changed by more than [$($SafetyThreshold * 100)%] from last execution.  See log entry above for more details"
     }
     Write-Log -Type INF -Message "###################################################################"
 }
@@ -1585,6 +1712,44 @@ Function Write-PAMLifecycleReport {
 $PAMSessionToken = $null
 $EPMSessionToken = $null
 $Error.Clear()
+
+#Create Log File
+try {
+    New-Item -Path $LogFilePath -Force -ErrorAction Stop *> $null
+}
+catch {
+    Write-Host "Unable to create log file at [$LogFilePath], aborting script --> $($_.Exception.Message)"
+    exit 1
+}
+
+#Create Report File
+try{
+    if ($ReportOnlyMode) {
+        Set-Variable -Name ReportFilePath -Scope Script -Value ($ReportFilePath.Substring(0,$ReportFilePath.Length - 4) + "_RO.csv")
+    }
+    New-Item -Path $ReportFilePath -Force -ErrorAction Stop *> $null
+    Add-Content -Path $ReportFilePath -Value "Username,Address,Action,Status" -ErrorAction Stop
+}
+catch {
+    Write-Log -Type ERR -Message "Unable to create report file at [$ReportFilePath], aborting script --> $($_.Exception.Message)"
+    exit 1
+}
+
+#Create DAT File
+if (!(Test-Path -Path $DatFilePath)) {
+    try {
+        New-Item -Path $DatFilePath -Force -ErrorAction Stop *> $null
+        $datFileSeed = [PSCustomObject]@{
+            EPMComputers = -1
+            PAMAccounts = -1
+        } | ConvertTo-Json
+        Add-Content -Path $DatFilePath -Value $datFileSeed
+    }
+    catch {
+        Write-Host "Unable to create DAT file at [$DatFilePath], aborting script --> $($_.Exception.Message)"
+        exit 1
+    }
+}
 
 #Print Log/Console Header
 Write-Log -Header
