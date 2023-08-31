@@ -1840,6 +1840,13 @@ finally {
         $EPMSessionToken = $null
     }
 
+    if (Test-Path -Path $ReportFilePath) {
+        $numLines = (Get-Content -Path $ReportFilePath | Measure-Object -Line).Lines
+        if ($numLines -eq 1) {
+            Remove-Item -Path $ReportFilePath -Force -ErrorAction SilentlyContinue *> $null
+        }
+    }
+
     Write-Log -Footer
     exit $returnCode
 }
