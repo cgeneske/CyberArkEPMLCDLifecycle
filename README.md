@@ -386,7 +386,7 @@ Additionally, you may review the output provided in report-only mode and determi
 It is generally **not recommended** to disable the safety mechanism for any extended period, but this option remains available in case no amount of threshold tuning would be suitable for the given environment or use-cases presenting.
 
 ## Safe Pooling
-Although there is no documented technical ceiling for the quantity of account objects that can exist per Safe, it is a good rule of thumb to keep this quantity to `30,000` or fewer to maintain optimal performance in PAM. 
+Although there is no documented technical ceiling for the quantity of account objects that a Safe can hold, it is a good rule of thumb to keep this quantity to `30,000` or fewer to maintain optimal performance parameters in PAM. 
 
 For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows or MacOS).  
 
