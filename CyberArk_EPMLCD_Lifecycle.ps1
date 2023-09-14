@@ -1042,6 +1042,10 @@ Function Get-PAMLCDAccounts {
             while ($result.nextLink)
         }
         Write-Log -Type INF -Message "PAM account search complete, [$candidatesCounter] LCD accounts found out of [$accountsCounter] total accounts"
+        if ($accountsCounter -eq 20000) {
+            Write-Log -Type WRN -Message "An exact result of 20,000 accounts may indicate a limitation in your current MaxDisplayed parameter setting which will disrupt this utility!"
+            Write-Log -Type WRN -Message "Please see this utility's README at https://github.com/cgeneske/CyberArkEPMLCDLifecycle for more information"
+        }
     }
     catch {
         Invoke-ParseFailureResponse -Component "PAM" -ErrorRecord $_ -Message "Failed to get PAM accounts associated with an active LCD platform"
