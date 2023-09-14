@@ -15,6 +15,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - Complete lifecycle management (on/off-boarding) of standardized local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
+- Supports on-boarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
@@ -27,7 +28,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 ## Prerequisites
 
 - One of the following CyberArk Privilege Access Management (PAM) platforms:
-    - CyberArk Privilege Access Management (PAM) Self-Hosted v11.3+
+    - CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+
     - CyberArk Privilege Cloud (Standard/Standalone) (i.e. `subdomain.privilegecloud.cyberark.com`)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or Windows Credential Manager
@@ -202,6 +203,10 @@ There are a series of script variables that must be set off default, to values t
     - When set to `$true` will skip the on-boarding logic.
 - `$SkipOffBoarding`
     - When set to `$true` will skip the off-boarding logic.
+- `$SkipWindows`
+    - When set to `$true` will skip lifecycle management for Windows-based accounts and endpoints.
+- `$SkipMac`
+    - When set to `$true` will skip lifecycle management for MacOS-based accounts and endpoints.
 - `$EndpointUserNamesWin`
     - List of one or more local account usernames to lifecycle manage for all Windows-based EPM endpoints.<br/><br/>
 
@@ -249,11 +254,11 @@ There are a series of script variables that must be set off default, to values t
 - `$OnboardingPlatformIdWin`
     - Platform ID for the platform to use when on-boarding Windows LCD accounts.
 - `$OnboardingPlatformIdMac`
-    - Platform ID for the platform to use when on-boarding Mac LCD accounts.
-- `$OnboardingSafeWin`
-    - The CyberArk Safe name that Windows LCD accounts will be on-boarded into.
-- `$OnboardingSafeMac`
-    - The CyberArk Safe name that Mac LCD accounts will be on-boarded into.
+    - Platform ID for the platform to use when on-boarding MacOS LCD accounts.
+- `$OnboardingSafesWin`
+    - A list of one or more Safes that Windows LCD accounts will be on-boarded into.
+- `$OnboardingSafesMac`
+    - A list of one or more Safes that MacOS LCD accounts will be on-boarded into.
 - `$LCDPlatformSearchRegex`
     - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
 - `$SafeSearchList`
@@ -354,7 +359,7 @@ There are a series of script variables that must be set off default, to values t
     
         Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 
-# Usage and Examples
+# General Usage and Advanced Techniques
 
 ## Safety Mechanism
 By design, this utility has the potential to make sweeping changes to the PAM account landscape.  Ideally, we desire to accommodate the situations that are reasonably expected and to likewise prevent those that might not be.  An example of an expected situation would be during the initial setup of this very utility.  An example of an unexpected situation might be the sudden change in privileges of the API user(s), which could result in a mass on-boarding of duplicates or mass off-boarding of accounts, brought by the API user's lack of proper visibility into its respective API.  To account for the unexpected, a safety mechanism has been provided.
@@ -379,6 +384,26 @@ Additionally, you may review the output provided in report-only mode and determi
 3. Disable the safety mechanism entirely by setting `$EnableSafety = $false` in the Script Variables section
 
 It is generally **not recommended** to disable the safety mechanism for any extended period, but this option remains available in case no amount of threshold tuning would be suitable for the given environment or use-cases presenting.
+
+## Safe Pooling
+Although there is no documented technical ceiling for the quantity of account objects that can exist per Safe, it is a good rule of thumb to keep this quantity to `30,000` or fewer to maintain optimal performance in PAM. 
+
+For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows or MacOS).  
+
+Consider the following example:
+
+```powershell
+$OnboardingSafesWin = "EPMLCDWin01","EPMLCDWin02","EPMLCDWin03"
+$OnboardingSafesMac = "EPMLCDMac01","EPMLCDMac02","EPMLCDMac03"
+```
+
+This configuration establishes 3 Safes for on-boarding distribution, and uniquely for each platform type.
+
+During the on-boarding motion, the utility will automatically analyze the current account quantities in all Safes for the respective pool and leverage the Safe with the lowest quantity of accounts for each candidate that is considered for on-boarding.  If all Safes are at an even quantity, the distribution will follow a round-robin on-boarding pattern.
+
+If you wish to add another Safe as you scale up your deployment, you may do so at any time, by simply adding a new Safe to PAM, ensuring you add the solution's API user with appropriate privileges, and then adding this to the end of the list in the respective script variable.  During the next and subsequent executions, on-boarding will prefer this Safe until it reaches equilibrium with other Safes in the pool.
+
+The utility will <u>warn</u> you if all Safes would exceed `28,000` accounts as a result of an on-boarding motion and will <u>**abort**</u> the on-boarding motion entirely, prior to initiating, if all Safes would exceed `30,000` accounts.
 
 ## Logging and Reporting
 Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  Log files will follow a naming convention of `<SCRIPT NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.log`.  These log files are created in a `"Logs"` subfolder which will be created by the utility if it does not exist, in the same directory that contains the script file.
@@ -426,21 +451,34 @@ Illustrated below is a two-domain example where EPM contains endpoints may have 
         ```
 These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false off-boarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
 
-## Limitations and Known Issues
-### ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
-Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
+# Limitations and Known Issues
+## The utility is only returning 20,000 accounts when searching PAM
+Although the CyberArk PAM API supports a paginated return, the [Get Accounts](https://docs.cyberark.com/PAS/Latest/en/Content/SDK/GetAccounts.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____1) endpoint is bound by an upper limit of `20,000` accounts by default.  This is upper limit is functionally tied to the `MaxDisplayedRecords` Parameter in PAM's configuration under `Administration > Options > Accounts UI Preferences > Main > View Settings`.  If the number of LCD accounts in your deployment would exceed 20,000 you must increase this value to meet or exceed your LCD account target for this utility to function correctly.
 
-### PowerShell ISE Logging
+>**NOTE:** This setting also affects the PAM Web UI (Password Vault Web Access), so it is recommended to increase in increments, and closely monitor Web UI performance following each change to ensure this does not detrimentally affect your environment's performance.
+
+See the following CyberArk Knowledge Base (KB) article that describes making this change [here](https://cyberark-customers.force.com/s/article/PVWA-All-accounts-only-show-up-to-20000-records)
+
+![MaxDisplayedRecords](images/maxdisplayedrecords.png)
+
+If you are interested in having this upper limit bound to another configuration parameter (as to not consequentially affect the Web UI), or to be eliminated entirely, you might consider adding your up-vote to the CyberArk Enhancement Request (ER) [here](https://cyberark-customers.force.com/s/article/Allow-REST-API-request-more-accounts-than-the-MaxDisplayedRecords-EQAQ)
+
+>**NOTE:** Up-voting ERs requires a CyberArk Technical Community Login
+
+## ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
+Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following CyberArk Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
+
+## PowerShell ISE Logging
 The script has been shown to experience intermittent issues writing to the log file, due to file locks, when running from within PowerShell ISE.  Therefore it is highly recommended that when running this script interactively, it be done from a standard PowerShell prompt and not from within PowerShell ISE.
 
-## Interactive Output Example
+# Interactive Output Example
 
 ```powershell
 CyberArk_EPMLCD_Lifecycle.ps1
 ```
 The example scenario below is configured with the following environment-specific considerations and preferences:
 
-### Example Inputs (Script Variable Preparation)
+## Example Inputs (Script Variable Preparation)
 
 - Report-Only Mode is Enabled, so **<u>no actual on/off-boarding</u>** will take place during this execution
 - We will use all sets in EPM
@@ -449,17 +487,16 @@ The example scenario below is configured with the following environment-specific
 - Named accounts that will exist on every Windows endpoint are `Administrator` and `X_Admin`
 - The named account that will exist on every Mac endpoint is `mac_admin`
 - The default `Windows Loosely Device` and `Mac Loosely Device` Platforms are used for on-boarding
-- The Safe in CyberArk PAM that will be used for on-boarding is named `EPM LCD Staging`
+- The Safe pool in CyberArk PAM that will be used for on-boarding is named `EPMLCDSTG01, EPMLCDSTG02, and EPMLCDSTG02`
 - The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com` (i.e. https://`pam.cybr.com`/PasswordVault)
 - Use DNS lookup to determine endpoint FQDN, and use the host's Suffix Search List for this effort
     - If an endpoint cannot be DNS resolved, assume it has no domain name for on/off-boarding consideration
 - Use CyberArk PAM (CCP) to retrieve the PAM and EPM API credentials
-- Use Client Certificate Authentication for CCP
-    - Using a certificate with the SHA1 thumbprint of `b88baf191dc7157775fda5fdd1d2b37f762154fd`
+- Use OS User Authentication for CCP against a unique CCP service root of `AIMWebServiceIWA`
 
 ![Example Variables](images/variablesexample.PNG)
 
-### Example Outputs and Result
+## Example Outputs and Result
 
 - Two (2) EPM Computers [Windows Platform] were found across two (2) EPM Sets; hostnames of `CLIENT02` and `DBSVR`
 - Both EPM Computers were successfully DNS resolved to FQDN `CLIENT02.cybr.com` and `DBSVR.cybr.com`

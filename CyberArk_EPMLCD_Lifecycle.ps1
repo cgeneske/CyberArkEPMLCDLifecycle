@@ -28,7 +28,7 @@ Key Features:
 - Complete lifecycle management (on/off-boarding) for named local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate on-boarding Safes for staging Mac and Windows accounts
-- Supports on-boarding evenly across a pool of safes to optimize per-safe object counts and keep under limits
+- Supports on-boarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
@@ -39,7 +39,7 @@ Key Features:
 
 Requirements:
 
-- CyberArk Privilege Access Management (PAM) Self-Hosted v11.3+ OR CyberArk Privilege Cloud (Standard/Standalone)
+- CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+ OR CyberArk Privilege Cloud (Standard/Standalone)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or the Windows Credential Manager
 - PowerShell v5 or greater
@@ -95,11 +95,11 @@ EndpointDomainNames     - List of one or more DNS domain names that EPM endpoint
 
 OnboardingPlatformIdWin - Platform ID for the platform to use when on-boarding Windows LCD accounts.
 
-OnboardingPlatformIdMac - Platform ID for the platform to use when on-boarding Mac LCD accounts.
+OnboardingPlatformIdMac - Platform ID for the platform to use when on-boarding MacOS LCD accounts.
 
 OnboardingSafesWin       - A list of one or more Safes that Windows LCD accounts will be on-boarded into.
 
-OnboardingSafesMac       - A list of one or more Safes that Mac LCD accounts will be on-boarded into.
+OnboardingSafesMac       - A list of one or more Safes that MacOS LCD accounts will be on-boarded into.
 
 LCDPlatformSearchRegex  - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be 
                           considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, 
