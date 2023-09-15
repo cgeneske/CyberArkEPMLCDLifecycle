@@ -194,7 +194,7 @@ Craig Geneske
 VERSION HISTORY:
 1.0     8/24/2023   - Initial Release
 1.0.1   8/29/2023   - Added safety mechanism
-1.0.2   9/14/2023   - Added safe pooling
+1.0.2   9/15/2023   - Added safe pooling
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -1592,12 +1592,12 @@ Function Confirm-ScriptVariables {
             }
         }
         if (!$validRegion) {
-            Write-Log -Type ERR -Message "EPMRegion is not set to a valid value, one of the following regions must be defined: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
+            Write-Log -Type ERR -Message "EPMRegion is not set to a valid value, you must specify one of the following: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
             throw
         }
     }
     else {
-        Write-Log -Type ERR -Message "EPMRegion is empty, one of the following regions must be defined: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
+        Write-Log -Type ERR -Message "EPMRegion is empty, you must specify one of the following: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
         throw
     }
     
