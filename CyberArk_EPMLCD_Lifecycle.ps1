@@ -1,3 +1,21 @@
+<#PSScriptInfo
+
+.VERSION 1.3.0
+
+.GUID cf187d04-2d7d-48aa-94cf-80d4f33f6a68
+
+.AUTHOR @cgeneske
+
+.DESCRIPTION CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD)
+
+.COPYRIGHT Copyright (c) 2023 Craig Geneske
+
+.LICENSEURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle/blob/main/LICENSE.md 
+
+.PROJECTURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle
+
+#>
+
 <#
 .SYNOPSIS
 CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD).
@@ -192,9 +210,10 @@ AUTHOR:
 Craig Geneske
 
 VERSION HISTORY:
-1.0     8/24/2023   - Initial Release
-1.0.1   8/29/2023   - Added safety mechanism
-1.0.2   9/15/2023   - Added safe pooling
+1.0.0   8/24/2023   - Initial Release
+1.1.0   8/29/2023   - Added safety mechanism
+1.2.0   9/15/2023   - Added safe pooling
+1.3.0   11/20/2023  - Added E-Mail notification, PSScriptInfo version check, and Privilege Cloud Shared Services support
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
