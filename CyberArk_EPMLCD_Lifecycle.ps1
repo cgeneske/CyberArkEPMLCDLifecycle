@@ -16,6 +16,8 @@
 
 #>
 
+#Requires -Version 5.0
+
 <#
 .SYNOPSIS
 CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD).
@@ -238,8 +240,6 @@ VERSION HISTORY:
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
 #>
-
-#Requires -Version 5.0
 
 using namespace System.Collections.Generic 
 
@@ -2120,8 +2120,8 @@ Function Test-LatestScriptVersion {
         $withNewExtension = $tmpFile.BaseName + ".ps1"
         $tmpFile = $tmpFile | Rename-Item -NewName $withNewExtension -PassThru -ErrorAction Stop
         (Invoke-WebRequest -UseBasicParsing -Uri $OriginScriptUri -ErrorAction Stop).Content | Set-Content -Path $tmpFile
-        $originScriptVer = (Test-ScriptFileInfo -Path $tmpFile -ErrorAction Stop).Version
-        if ($originScriptVer -gt $PSScriptInfo.Version) {
+        $originScriptVer = [version](Test-ScriptFileInfo -Path $tmpFile -ErrorAction Stop).Version
+        if ($originScriptVer -gt [version]$PSScriptInfo.Version) {
             Write-Log -Type WRN -Message "There is a newer version [$($originScriptVer.ToString())] available on GitHub!"
             return $originScriptVer.ToString()
         }
