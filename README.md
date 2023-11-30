@@ -34,7 +34,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or Windows Credential Manager
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and natively on-boarding local accounts to be managed via LCD.  For more information on this capability, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and on-boarding local accounts to be managed via LCD.  For more information on this capability, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
 
 ## Deployment Overview
 1. Prepare a purpose-dedicated CyberArk PAM API User - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
@@ -46,9 +46,9 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
     - For Windows Credential Manager, see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)
 
 4. Prepare the respective LCD Platforms (Windows, MacOS, and/or Linux) that will be used for on-boarding in CyberArk PAM
-    - The LCD Platform for Windows endpoints is `Windows Loosely Device` and this is available out of the box
-    - The LCD Platform for MacOS is `MAC Loosely Device`, and can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
-    - The LCD Platform for Linux is `Linux Looesly Device`, and can be downloaded from CyberArk Marketplace [here](https://cyberark.my.site.com/mplace/s/#a35Ht000001pcrlIAA-a39Ht000003ztibIAA)
+    - The LCD Platform for `Windows Loosely Device` is available out of the box
+    - The LCD Platform for `MAC Loosely Device` can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
+    - The LCD Platform for `Linux Looesly Device` can be downloaded from CyberArk Marketplace [here](https://cyberark.my.site.com/mplace/s/#a35Ht000001pcrlIAA-a39Ht000003ztibIAA)
         - For complete instructions on importing a Platform, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Importaplatform)
     - Critical to the effectiveness of this solution, is ensuring these Platforms are configured for `AutoChangeOnAdd = Yes`.  See official CyberArk documentation for this Platform parameter [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASREF/Platform%20Mgmnt%20-%20UI%20and%20Workflows.htm)
         - For complete instructions on how to edit a Platform in order to make this configuration change, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Editaplatform)
@@ -558,7 +558,7 @@ The example scenario below is configured with the following environment-specific
 
 ![Example Output](images/outputexample.png)
 
-![Example Email Summary](images/emailsummaryexample.png)
+![Example Email Summary](images/emailsummaryexample.PNG)
 
 # Support
 
