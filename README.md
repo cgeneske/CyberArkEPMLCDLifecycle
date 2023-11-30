@@ -34,7 +34,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or Windows Credential Manager
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and on-boarding local accounts to be managed via LCD.  For more information on this capability, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and on-boarding local accounts to be managed via LCD.  For more information on this capability, see CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
 
 ## Deployment Overview
 1. Prepare a purpose-dedicated CyberArk PAM API User - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
@@ -532,7 +532,7 @@ The example scenario below is configured with the following environment-specific
 - The named account that will exist on every Mac endpoint is `mac_admin`
 - The named account that will exist on every Linux endpoint is `root`
 - The default Platforms will be used for on-boarding
-- The Safe pool in CyberArk PAM that will be used for on-boarding is named `EPMLCDSTG01, EPMLCDSTG02, and EPMLCDSTG02`
+- The Safe pool in CyberArk PAM that will be used for on-boarding contains safes named `EPMLCDSTG01`, `EPMLCDSTG02`, and `EPMLCDSTG03`
 - The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com` (i.e. https://`pam.cybr.com`/PasswordVault)
 - We will not use DNS lookup to determine Windows endpoint FQDN.
     - We will assume a DNS suffix of `cybr.com` for all Windows endpoints.
@@ -543,6 +543,8 @@ The example scenario below is configured with the following environment-specific
 ![Example Variables](images/variablesexample.PNG)
 
 ## Example Outputs and Result
+
+Four (4) on-boarding candidates and one (1) off-boarding candidate were identified.  This was determined in the following way:
 
 - Three (3) EPM Computers [Windows Platform] were found across three (3) EPM Sets; hostnames of `CLIENT02`, `DBSVR` and `WINTGT`
 - All EPM Computers were DNS suffix appended to FQDN `CLIENT02.cybr.com`, `DBSVR.cybr.com`, and `WINTGT.cybr.com`
