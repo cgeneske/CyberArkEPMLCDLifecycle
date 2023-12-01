@@ -1262,8 +1262,8 @@ Function Get-EPMComputers {
                 }
                 $result = Invoke-EPMRestMethod -Parameters $ParamsHt
                 foreach ($computer in $result.Computers) {  
-                    #At present, EPM API returns a Platform of "Unknown" for Linux computers (agents) which now support LCD.  
-                    #Transforming these instances to a Platform of "Linux" until such a time that this may be natively offered. 
+                    #At present, EPM API returns a Platform of "Unknown" for Linux computers.  
+                    #Transforming these to a Platform of "Linux". 
                     if ($computer.Platform -eq "Unknown") {
                         $computer.Platform = "Linux"
                     }

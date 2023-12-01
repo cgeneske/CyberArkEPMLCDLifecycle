@@ -400,13 +400,14 @@ It is generally **not recommended** to disable the safety mechanism for any exte
 ## Safe Pooling
 Although there is no documented technical ceiling for the quantity of account objects that a Safe can hold, it is a good rule of thumb to keep this quantity to `30,000` or fewer to maintain optimal performance parameters in PAM. 
 
-For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows or MacOS).  
+For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows, MacOS, or Linux).  
 
 Consider the following example:
 
 ```powershell
 $OnboardingSafesWin = "EPMLCDWin01","EPMLCDWin02","EPMLCDWin03"
 $OnboardingSafesMac = "EPMLCDMac01","EPMLCDMac02","EPMLCDMac03"
+$OnboardingSafesLinux = "EPMLCDNix01","EPMLCDNix02","EPMLCDNix03"
 ```
 
 This configuration establishes 3 Safes for on-boarding distribution, and uniquely for each platform type.
@@ -508,7 +509,7 @@ The script has been shown to experience intermittent issues writing to the log f
 ## Fully Qualified Domain Name (FQDN) Reliability
 As mentioned in the [Advanced Domain Name EPM Set Targeting and Process Scoping](#Advanced-Domain-Name-EPM-Set-Targeting-and-Process-Scoping) section above, the EPM API does not presently provide the FQDN nor DNS Suffix for Windows endpoints.  
 
-The FQDN for Windows endpoints is a required data point for PAM on-boarding and its accuracy is critical for ensuring the LCD mechanism will engage for these endpoints.  This utility can be configured to utilize the same, static, DNS suffix for all Windows endpoints, or to utilize DNS to resolve an endpoint's FQDN (potentially useful for mixed domain environments).  Unfortunately, neither solution may provide for a reliable or complete solution in every environment.  The objectively ideal outcome would be for the EPM API to simply provide this data point for us authoritatively.
+The FQDN for Windows endpoints is a required data point for PAM on-boarding and its accuracy is critical for ensuring the LCD mechanism will engage for these endpoints.  This utility can be configured to use the same, static, DNS suffix for all Windows endpoints, or to use DNS to resolve an endpoint's FQDN (potentially useful for mixed domain environments).  Unfortunately, neither solution may provide for a reliable or complete solution in every environment.  The objectively ideal outcome would be for the EPM API to simply provide this data point for us authoritatively.
 
 If you would like to see the EPM API provide the FQDN (or DNS Suffix) for endpoints, please show your support by adding your vote to [this Enhancement Request (ER)](https://cyberark.my.site.com/s/article/EPM-API-to-provide-FQDN-of-computer-endpoints-c6f9-c8f)
 
