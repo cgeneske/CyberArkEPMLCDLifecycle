@@ -2,7 +2,7 @@
 
 Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to CyberArk's Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concert with dialing in these least-privilege and application controls, EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
-The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows or Mac) as a part of its standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
+The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
 The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, automatically determining and executing the needed on-boarding and off-boarding actions in PAM.  As new agents come online in EPM, one or more standardized local accounts will be on-boarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their local accounts will be off-boarded from PAM.
 
@@ -14,7 +14,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 
 - Complete lifecycle management (on/off-boarding) of standardized local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
-- Supports separate on-boarding Safes for staging Mac and Windows accounts
+- Supports separate on-boarding Safes for staging Windows, MacOS and Linux accounts
 - Supports on-boarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
@@ -29,15 +29,15 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 
 - One of the following CyberArk Privilege Access Management (PAM) platforms:
     - CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+
-    - CyberArk Privilege Cloud (Standard/Standalone) (i.e. `subdomain.privilegecloud.cyberark.com`)
+    - CyberArk Privilege Cloud (Any Version)
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or Windows Credential Manager
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is a new capability coming soon to Privilege Cloud Discovery that will natively integrate with EPM for discovering and naturally on-boarding local accounts to be managed via LCD.  For more information on this capability, be sure to reach out to your CyberArk account team.
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and on-boarding local accounts to be managed via LCD.  For more information on this capability, see CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
 
 ## Deployment Overview
-1. Prepare a purpose-dedicated CyberArk PAM User (CyberArk Authentication) - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
+1. Prepare a purpose-dedicated CyberArk PAM API User - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
 
 2. Prepare a purpose-dedicated CyberArk EPM User - See [EPM API User Creation and Permissions](#epm-api-user-creation-and-permissions)
 
@@ -45,9 +45,10 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
     - For CyberArk PAM (CCP), see [CyberArk Central Credential Provider (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations)
     - For Windows Credential Manager, see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)
 
-4. Prepare the respective LCD Platforms (Windows and Mac) that will be used for on-boarding in CyberArk PAM
-    - The LCD Platform for Windows endpoints is `Windows Loosely Device` and this is available out of the box
-    - The LCD Platform for Mac is `MAC Loosely Device`, and can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
+4. Prepare the respective LCD Platforms (Windows, MacOS, and/or Linux) that will be used for on-boarding in CyberArk PAM
+    - The LCD Platform for `Windows Loosely Device` is available out of the box
+    - The LCD Platform for `MAC Loosely Device` can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
+    - The LCD Platform for `Linux Looesly Device` can be downloaded from CyberArk Marketplace [here](https://cyberark.my.site.com/mplace/s/#a35Ht000001pcrlIAA-a39Ht000003ztibIAA)
         - For complete instructions on importing a Platform, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Importaplatform)
     - Critical to the effectiveness of this solution, is ensuring these Platforms are configured for `AutoChangeOnAdd = Yes`.  See official CyberArk documentation for this Platform parameter [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASREF/Platform%20Mgmnt%20-%20UI%20and%20Workflows.htm)
         - For complete instructions on how to edit a Platform in order to make this configuration change, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Editaplatform)
@@ -62,38 +63,44 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 7. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
 
 ## PAM API User Creation and Permissions
-A purpose-dedicated Vault Local User (CyberArk Authentication) should be created in PAM for use with this utility.  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
+A purpose-dedicated user should be created in PAM for use with this utility.  For Self-Hosted PAM or Privilege Cloud Standalone, this would be a Vault Local User (leveraging CyberArk Authentication).  For Privilege Cloud Shared Services, this would be a CyberArk Identity Cloud Account (Service User).  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
 
-The user should be created as a "Standard user"; no Vault level authorizations or built-in group memberships are mandatory for this user.
+The user should be created as a "Standard user" (for Self-Hosted PAM and Privilege Cloud Standard) or otherwised added to the "Privilege Cloud Users" role (for Privilege Cloud Shared Services).  No Vault level authorizations or built-in group memberships are mandatory for this user.
 
 For complete instructions on how to create this user, see official CyberArk documentation links below:
-- [Add a User - Privilege Cloud (Standard/Standalone)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-user-mng.htm?tocpath=Setup%7CAdd%20and%20manage%20users%7C_____0#CreateCyberArkusers)
+- [Add a User - Privilege Cloud Shared Services (i.e. subdomain.cyberark.cloud)](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/ISPSS/ISPSS-API-Authentication.htm#Step1CreateaServiceuserforAPIrequests)
+- [Add a User - Privilege Cloud Standard/Standalone (i.e. subdomain.privilegecloud.cyberark.com)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-user-mng.htm?tocpath=Setup%7CAdd%20and%20manage%20users%7C_____0#CreateCyberArkusers)
 - [Add a User - PAM Self-Hosted (13.2 and above)](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Users-groups-add-users-v10.htm?tocpath=Administrator%7CUser%20Management%7CManage%20users%20and%20groups%7CUsing%20the%20version%2010%20interface%7C_____1)
 - [Add a User - PAM Self-Hosted (13.0 and below)](https://docs.cyberark.com/PAS/13.0/en/Content/PASIMP/Managing-Users.htm?tocpath=Administrator%7CUser%20Management%7C_____4#AddausertoaVault)
 
 For Safes that will be considered for existing accounts inventory and off-boarding activity, the following privileges are required:
 
-- Access > List Accounts
-- Account Management > Delete Accounts
+- Access
+    - [x] List Accounts
+- Account Management
+    - [x] Delete Accounts
 
-For Safes that will be considered for on-boarding activity, these being the static Windows and Mac safes named in the `$OnboardingSafeWin` and `$OnboardingSafeMac` Script Variables (See the [Assigning Script Variables](#assigning-script-variables) section below for more info), the following privileges are required:
+For Safes that will be considered for on-boarding activity, these being the static Windows, Mac, and Linux safes named in the `$OnboardingSafesWin`, `$OnboardingSafesMac`, and `$OnboardingSafesLinux` Script Variables (See the [Assigning Script Variables](#assigning-script-variables) section below for more info), the following privileges are required:
 
-- Access --> List Accounts
-- Account Management --> Add Accounts
-- Account Management --> Update Account Properties
-- Account Management --> Update Account Content*
-- Account Management --> Initiate CPM Account Management Operations
-- Account Management --> Delete Accounts**
+- Access
+    - [x] List Accounts
+- Account Management
+    - [x] Add Accounts
+    - [x] Update Account Properties
+    - [x] Update Account Content*
+    - [x] Initiate CPM Account Management Operations
+    - [x] Delete Accounts**
 
 >`* ` - Specifically required for un-delete scenarios<br/>
 >`**` - Required if this safe should also be considered for off-boarding
 
 For complete instructions on how to permission a Safe, see official CyberArk documentation links below:
-- [Add Safe Members - Privilege Cloud (Standard/Standalone)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm?tocpath=Administrators%7CCreate%20Safes%20and%20assign%20access%7C_____2#AddSafemembers)
+- [Add Safe Members - Privilege Cloud Shared Services (i.e. subdomain.cyberark.cloud)](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm#AddSafemembers)
+- [Add Safe Members - Privilege Cloud Standard/Standalone (i.e. subdomain.privilegecloud.cyberark.com)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm?tocpath=Administrators%7CCreate%20Safes%20and%20assign%20access%7C_____2#AddSafemembers)
 - [Add Safe Members - PAM Self-Hosted](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Safes-add-a-safe-member-V12-6.htm?tocpath=Administrator%7CPrivileged%20Accounts%7CAccess%20Control%7CSafes%20and%20Safe%20members%7CNew%20interface%7C_____3#AddaSafemember1)
 
 ## EPM API User Creation and Permissions
-A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  At this time there are limited options for creating API-dedicated logins in EPM due to the fact that logins require E-Mail activation and yet the login must also remain unique.  To overcome this limitation, the same E-Mail of an existing login may be used in the creation of a new and unique login through the following technique:
+A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  At this time there are limited options for creating API-dedicated logins in EPM since logins require E-Mail activation and the login must also remain unique.  To overcome this limitation, you might consider establishing an organizational mailbox for this account, if viable.  Alternatively, the same E-Mail of an existing login may be used in the creation of a new and unique login through the plus addressing technique:
 
 Existing Login Example Email - john.doe@company.com <br/>
 New Login Example Email - john.doe+lcd_lifecycle@company.com <br/>
@@ -197,6 +204,7 @@ Screenshot examples of how this task might be setup, when run under a traditiona
 ## Assigning Script Variables
 There are a series of script variables that must be set off default, to values that are pertinent to your executing environment.  These variables are declared in the `SCRIPT VARIABLES` region at the top of the script between the `### BEGIN CHANGE-ME SECTION ###` and `### END CHANGE-ME SECTION ###` comment markers:
 
+### Run Mode Options
 - `$ReportOnlyMode`
     - When set to `$true` will report in console, log, and CSV, which accounts would be on-boarded to, and/or off-boarded from, PAM. **This is a read-only run mode!**
 - `$SkipOnBoarding`
@@ -207,16 +215,35 @@ There are a series of script variables that must be set off default, to values t
     - When set to `$true` will skip lifecycle management for Windows-based accounts and endpoints.
 - `$SkipMac`
     - When set to `$true` will skip lifecycle management for MacOS-based accounts and endpoints.
+- `$SkipLinux`
+    - When set to `$true` will skip lifecycle management for Linux-based accounts and endpoints.
+
+### Auxillary Options
+- `$SendSummaryEmail`
+    - When set to `$true` will send an execution summary E-Mail to the recipient configured in `$EmailToAddress`.
+- `$EmailWithSsl`
+    - When set to `$true` will send the execution summary E-Mail using SSL/TLS.
+- `$VersionCheck`
+    - When set to `$true` will compare to the latest script available on GitHub and log/notify if a new version is available.
+- `$ValidateDomainNamesDNS`
+    - When set to `$true` will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
+    Used with `$EndpointDomainNames` (See entry above for more details).
+    Used with `$SkipIfNotInDNS` (See entry below for more details).
+- `$SkipIfNotInDNS`
+    - When set to `$true` will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to `$false`, endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.  Only used when `$ValidateDomainNamesDNS` is set to `$true`, otherwise this can be ignored.
+- `$IgnoreSSLCertErrors`
+    - When set to `$true` will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection. It is recommended to leave this value as `$false` to ensure certificates are verified!
+
+### General Environment Details
 - `$EndpointUserNamesWin`
-    - List of one or more local account usernames to lifecycle manage for all Windows-based EPM endpoints.<br/><br/>
-
-    >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints.  An account will be on-boarded to PAM for each username provided in this list, and for every Windows endpoint, regardless if it actually exists on a given endpoint or not.
+    - List of one or more local account usernames to lifecycle manage for all Windows-based EPM endpoints.
 - `$EndpointUserNamesMac`
-    - List of one or more local account usernames to lifecycle manage for all Mac-based EPM endpoints.<br/><br/>
-
-    >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints.  An account will be on-boarded to PAM for each username provided in this list, and for every Mac endpoint, regardless if it actually exists on a given endpoint or not.
+    - List of one or more local account usernames to lifecycle manage for all Mac-based EPM endpoints.
+- `$EndpointUserNamesLinux`
+    - List of one or more local account usernames to lifecycle manage for all Linux-based EPM endpoints.<br/><br/>
+    >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints!  An account will be on-boarded to PAM for each username provided in this list, and for every Windows/MacOS/Linux endpoint, regardless if it actually exists on a given endpoint or not.
 - `$EndpointDomainNames`
-    - List of one or more DNS domain names that EPM endpoints have membership to. Applicable only for Windows endpoints as Mac endpoints are assumed to have no domain name. Used with the "ValidateDomainNamesDNS" and "SkipIfNotInDNS" -- See below for complete info on these variables.
+    - List of one or more DNS domain names that EPM endpoints have membership to. Applicable only for Windows endpoints as Mac/Linux endpoints are assumed to have an incorporated domain/DNS suffix (if any). Used with `$ValidateDomainNamesDNS` and `$SkipIfNotInDNS` -- See below for complete info on these variables.
         - If `$ValidateDomainNamesDNS` is set to `$false`, `$EndpointDomainNames` must be set to a single domain name or empty (i.e. "").  
         - If `$ValidateDomainNamesDNS` is set to `$true`, `$EndpointDomainNames` may remain empty, contain a single domain name, or contain multiple domain names.  
         - If `$ValidateDomainNamesDNS` is set to `$true` and `$EndpointDomainNames` is empty, the DNS Client's Suffix Search List will be used.
@@ -255,10 +282,14 @@ There are a series of script variables that must be set off default, to values t
     - Platform ID for the platform to use when on-boarding Windows LCD accounts.
 - `$OnboardingPlatformIdMac`
     - Platform ID for the platform to use when on-boarding MacOS LCD accounts.
+- `$OnboardingPlatformIdLinux`
+    - Platform ID for the platform to use when on-boarding Linux LCD accounts.
 - `$OnboardingSafesWin`
     - A list of one or more Safes that Windows LCD accounts will be on-boarded into.
 - `$OnboardingSafesMac`
     - A list of one or more Safes that MacOS LCD accounts will be on-boarded into.
+- `$OnboardingSafesLinux`
+    - A list of one or more Safes that Linux LCD accounts will be on-boarded into.
 - `$LCDPlatformSearchRegex`
     - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
 - `$SafeSearchList`
@@ -270,15 +301,15 @@ There are a series of script variables that must be set off default, to values t
 - `$EPMRegion`
     - The region of your EPM SaaS tenant.  Must be set to one of the following values:  US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA
 - `$PAMHostname`
-    - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "subdomain.privilegecloud.cyberark.com")
-- `$IgnoreSSLCertErrors`
-    - When set to `$true` will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection. It is recommended to leave this value as `$false` to ensure certificates are verified!
-- `$ValidateDomainNamesDNS`
-    - When set to `$true` will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
-    Used with `$EndpointDomainNames` (See entry above for more details).
-    Used with `$SkipIfNotInDNS` (See entry below for more details).
-- `$SkipIfNotInDNS`
-    - When set to `$true` will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to `$false`, endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.  Only used when `$ValidateDomainNamesDNS` is set to `$true`, otherwise this can be ignored.
+    - The base hostname of the Self-Hosted PAM or Privilege Cloud (i.e. "subdomain.privilegecloud.cyberark.com" or "subdomain.cyberark.cloud")
+- `$SMTPRelayHostname`
+    - The hostname (FQDN or IP) of the SMTP relay you would like to send the execution summary E-Mail.
+- `$EmailFromAddress`
+    - The "From" address to be used when sending the execution summary E-Mail.
+- `$EmailToAddress`
+    - The "To" recipient to use when sending the execution summary E-Mail.
+
+### Source for PAM and EPM API credentials
 - `$APIUserSource`
     - Determines the source for PAM and EPM API credential lookup.  There are two possible settings:
 
@@ -293,14 +324,14 @@ There are a series of script variables that must be set off default, to values t
         Will use the Windows Credential Manager for API credential lookup
 
         CyberArk CCP is generally recommended wherein available, as this simplifies solution setup and allows for regular credential rotation for the API users without the need to update any configuration points on the solution's host.
+
+### Populated When API User Source is `[APIUserSource]::WinCredMgr`
 - `$PAMCredTarget`
-    - The "Internet or network address" value that was used when entering the PAM API credential into Windows Credential Manager.  
-    
-        Used with an APIUserSource of `[APIUserSource]::WinCredMgr`, otherwise this can be ignored.
+    - The "Internet or network address" value that was used when entering the `PAM` API credential into Windows Credential Manager.  
 - `$EPMCredTarget`
-    - The "Internet or network address" value that was used when entering the EPM API credential into Windows Credential Manager.
+    - The "Internet or network address" value that was used when entering the `EPM` API credential into Windows Credential Manager.
     
-        Used with an APIUserSource of `[APIUserSource]::WinCredMgr`, otherwise this can be ignored.
+### Populated when API User Source is `[APIUSerSource]::CyberArkCCP`
 - `$CCPAuthType`
     - Determines the authentication type against CCP when used as the API user source.  There are three possible settings:
 
@@ -320,44 +351,25 @@ There are a series of script variables that must be set off default, to values t
         Will depend solely upon an allowed machines listing in CyberArk for authentication
 
         >**NOTE:**  Allowed Machines authentication may be layered on to OSUser or Certificate based authentication in the CyberArk configuration.  
-        
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
+
 - `$CertThumbprint`
     - The SHA1 thumbprint of the client certificate to use for authentication to CCP.
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, and with a CCPAuthType of `[CCPAuthType]::Certificate`, otherwise this can be ignored.
 - `$PAMAccountName`
     - The account name (aka object name) of the vaulted account that represents the PAM API credential.
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 - `$PAMObjectSafe`
     - The Safe where the vaulted account that represents the PAM API credential is held in CyberArk.
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 - `$EPMAccountName`
     - The account name (aka object name) of the vaulted account that represents the EPM API credential.
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 - `$EPMObjectSafe`
     - The Safe where the vaulted account that represents the EPM API credential is held in CyberArk.
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 - `$CCPHostname`
-    - The base hostname of the CyberArk CCP (i.e. "ccp.cybr.com")
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
+    - The base hostname of the CyberArk CCP (i.e. "ccp.cybr.com")  
 - `$CCPPort`
     - The port number for the CyberArk CCP listener (i.e. 443)
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 - `$CCPServiceRoot`
     - The IIS application/service root that should be used for the web call to CCP (i.e. AIMWebService).
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 - `$CCPAppID`
     - The Application ID registered in CyberArk that should be used identification to CCP.
-    
-        Used with an APIUserSource of `[APIUserSource]::CyberArkCCP`, otherwise this can be ignored.
 
 # General Usage and Advanced Techniques
 
@@ -388,13 +400,14 @@ It is generally **not recommended** to disable the safety mechanism for any exte
 ## Safe Pooling
 Although there is no documented technical ceiling for the quantity of account objects that a Safe can hold, it is a good rule of thumb to keep this quantity to `30,000` or fewer to maintain optimal performance parameters in PAM. 
 
-For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows or MacOS).  
+For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows, MacOS, or Linux).  
 
 Consider the following example:
 
 ```powershell
 $OnboardingSafesWin = "EPMLCDWin01","EPMLCDWin02","EPMLCDWin03"
 $OnboardingSafesMac = "EPMLCDMac01","EPMLCDMac02","EPMLCDMac03"
+$OnboardingSafesLinux = "EPMLCDNix01","EPMLCDNix02","EPMLCDNix03"
 ```
 
 This configuration establishes 3 Safes for on-boarding distribution, and uniquely for each platform type.
@@ -412,8 +425,30 @@ A CSV report is generated containing all accounts that are candidates for on/off
 
 >**NOTE:** The script will immediately abort if the log file or report file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs and Reports folder, along with the respective files within.  Run the script interactively to observe the error you're receiving in console if this should occur.
 
+In addition to the log and report files which will always be generated, this utility may also optionally send an execution summary via E-Mail.  This feature can be enabled by setting:
+
+```powershell
+$SendSummaryEmail = $true
+```
+
+Along with the supporting E-Mail varaibles that determine FROM address, TO address, and which host the E-Mail should be relayed for exchange routing.  
+
+The execution summary E-Mail will contain basic details about the execution in both the subject line and body, to include:
+
+- Whether a new version of the utility is available on GitHub (if `$VersionCheck` is enabled)
+- Whether the execution mode was Report-Only
+- Overall success or failure of the execution
+- Execution start datetime, end datetime, and run duration (in HH:MM:SS)
+- Quantity of accounts that were successfully (or would be) on/off-boarded
+- Quantity of accounts that failed to on/off-board (if any)
+- Whether or not the safety mechanism was triggered
+
+Further detail regarding any specific errors or failures will usually be obtainable from the respective execution's log and report files which remain on the utility's host, and will be path-referenced in the execution summary E-Mail when such a failure situation occurs.
+
+>**NOTE:** The technique leverages PowerShell's native `Send-MailMessage` cmdlet which has been designated as deprecated by Microsoft, and without a suitable replacement being provided natively in .NET.  Even so, this cmdlet should remain adequate for anonymous transmission via internal mail gateways, which should naturally align to its intended use.
+
 ## Advanced Domain Name EPM Set Targeting and Process Scoping
-Unfortunately, at present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
+At present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
 
 1. We can attempt to discover the domain name via DNS against a set of possible domain names
 
@@ -471,6 +506,15 @@ Presence of this error may indicate a backend configuration disparity with Cyber
 ## PowerShell ISE Logging
 The script has been shown to experience intermittent issues writing to the log file, due to file locks, when running from within PowerShell ISE.  Therefore it is highly recommended that when running this script interactively, it be done from a standard PowerShell prompt and not from within PowerShell ISE.
 
+## Fully Qualified Domain Name (FQDN) Reliability
+As mentioned in the [Advanced Domain Name EPM Set Targeting and Process Scoping](#Advanced-Domain-Name-EPM-Set-Targeting-and-Process-Scoping) section above, the EPM API does not presently provide the FQDN nor DNS Suffix for Windows endpoints.  
+
+The FQDN for Windows endpoints is a required data point for PAM on-boarding and its accuracy is critical for ensuring the LCD mechanism will engage for these endpoints.  This utility can be configured to use the same, static, DNS suffix for all Windows endpoints, or to use DNS to resolve an endpoint's FQDN (potentially useful for mixed domain environments).  Unfortunately, neither solution may provide for a reliable or complete solution in every environment.  The objectively ideal outcome would be for the EPM API to simply provide this data point for us authoritatively.
+
+If you would like to see the EPM API provide the FQDN (or DNS Suffix) for endpoints, please show your support by adding your vote to [this Enhancement Request (ER)](https://cyberark.my.site.com/s/article/EPM-API-to-provide-FQDN-of-computer-endpoints-c6f9-c8f)
+
+>**NOTE:** Up-voting ERs requires a CyberArk Technical Community Login
+
 # Interactive Output Example
 
 ```powershell
@@ -478,34 +522,46 @@ CyberArk_EPMLCD_Lifecycle.ps1
 ```
 The example scenario below is configured with the following environment-specific considerations and preferences:
 
-## Example Inputs (Script Variable Preparation)
+## Example Setup and Scenario (Script Variable Preparation)
 
 - Report-Only Mode is Enabled, so **<u>no actual on/off-boarding</u>** will take place during this execution
+- An execution summary e-mail will be sent
 - We will use all sets in EPM
 - The EPM Region/Datacenter is US
 - All Safes that the PAM API user has access to, will be searched for existing LCD accounts
 - Named accounts that will exist on every Windows endpoint are `Administrator` and `X_Admin`
 - The named account that will exist on every Mac endpoint is `mac_admin`
-- The default `Windows Loosely Device` and `Mac Loosely Device` Platforms are used for on-boarding
-- The Safe pool in CyberArk PAM that will be used for on-boarding is named `EPMLCDSTG01, EPMLCDSTG02, and EPMLCDSTG02`
+- The named account that will exist on every Linux endpoint is `root`
+- The default Platforms will be used for on-boarding
+- The Safe pool in CyberArk PAM that will be used for on-boarding contains safes named `EPMLCDSTG01`, `EPMLCDSTG02`, and `EPMLCDSTG03`
 - The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com` (i.e. https://`pam.cybr.com`/PasswordVault)
-- Use DNS lookup to determine endpoint FQDN, and use the host's Suffix Search List for this effort
-    - If an endpoint cannot be DNS resolved, assume it has no domain name for on/off-boarding consideration
+- We will not use DNS lookup to determine Windows endpoint FQDN.
+    - We will assume a DNS suffix of `cybr.com` for all Windows endpoints.
 - Use CyberArk PAM (CCP) to retrieve the PAM and EPM API credentials
+     - The CCP's hostname is `ccp.cybr.com` (i.e. https://`ccp.cybr.com`/AIMWebService/...)
 - Use OS User Authentication for CCP against a unique CCP service root of `AIMWebServiceIWA`
 
 ![Example Variables](images/variablesexample.PNG)
 
 ## Example Outputs and Result
 
-- Two (2) EPM Computers [Windows Platform] were found across two (2) EPM Sets; hostnames of `CLIENT02` and `DBSVR`
-- Both EPM Computers were successfully DNS resolved to FQDN `CLIENT02.cybr.com` and `DBSVR.cybr.com`
-- Three (3) LCD-based accounts out of eighty-three (83) total accounts were found as existing in PAM
-    - These three (3) existing LCD-based accounts are `Administrator` for `CLIENT02.cybr.com` and `DBSVR.cybr.com`, along with one other custom account/username that was added outside of this utility (and will thus, not be managed by this utility)
-- Only `X_Admin` for `CLIENT02.cybr.com` and `DBSVR.cybr.com` were found to not exist in PAM, and are reported for on-boarding
-- Nothing has been identified for off-boarding
+Four (4) on-boarding candidates and one (1) off-boarding candidate were identified.  This was determined in the following way:
+
+- Three (3) EPM Computers [Windows Platform] were found across three (3) EPM Sets; hostnames of `CLIENT02`, `DBSVR` and `WINTGT`
+- All EPM Computers were DNS suffix appended to FQDN `CLIENT02.cybr.com`, `DBSVR.cybr.com`, and `WINTGT.cybr.com`
+- Four (4) LCD-based accounts out of eighty-six (86) total accounts were found as existing in PAM - these are:
+    - `Administrator` for `CLIENT02.cybr.com`
+    - `Administrator` for `CLIENT03.cybr.com` 
+    - `Administrator` for `DBSVR.cybr.com`
+    - `AppAdmin1` for `CLIENT03.cybr.com`
+- `X_Admin` is missing in PAM for all three EPM computers, and should be on-boarded
+- `Administrator` for `WINTGT.cybr.com` is also missing in PAM, and should be on-boarded
+- `CLIENT03` does not exist in EPM and so its managed account entry for `Administrator` should be off-boarded from PAM
+- `AppAdmin1` is not a username listed in `$EndpointUserNamesWin`.  It's expected that this account was on-boarded outside of this utility for a specific application role, and is out of scope for this utility.  It will **not** be off-boarded despite there being no corresponding computer object for it in EPM
 
 ![Example Output](images/outputexample.png)
+
+![Example Email Summary](images/emailsummaryexample.PNG)
 
 # Support
 

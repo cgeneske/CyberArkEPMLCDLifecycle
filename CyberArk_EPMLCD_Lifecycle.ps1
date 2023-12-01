@@ -1,3 +1,23 @@
+<#PSScriptInfo
+
+.VERSION 1.3.0
+
+.GUID cf187d04-2d7d-48aa-94cf-80d4f33f6a68
+
+.AUTHOR @cgeneske
+
+.DESCRIPTION CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD)
+
+.COPYRIGHT Copyright (c) 2023 Craig Geneske
+
+.LICENSEURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle/blob/main/LICENSE.md 
+
+.PROJECTURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle
+
+#>
+
+#Requires -Version 5.0
+
 <#
 .SYNOPSIS
 CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD).
@@ -10,9 +30,9 @@ EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access M
 agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
 The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an 
-EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows or Mac) as a part of its standard 
-baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the 
-CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
+EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its 
+standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, 
+the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
 The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, 
 automatically determining and executing the needed on-boarding and off-boarding actions in PAM.  As new agents come online in EPM, one or more 
@@ -27,7 +47,7 @@ Key Features:
 
 - Complete lifecycle management (on/off-boarding) for named local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
-- Supports separate on-boarding Safes for staging Mac and Windows accounts
+- Supports separate on-boarding Safes for staging Windows, MacOS and Linux accounts
 - Supports on-boarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
@@ -39,7 +59,7 @@ Key Features:
 
 Requirements:
 
-- CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+ OR CyberArk Privilege Cloud (Standard/Standalone)
+- CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+ OR CyberArk Privilege Cloud
 - CyberArk Endpoint Privilege Management (EPM) SaaS
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or the Windows Credential Manager
 - PowerShell v5 or greater
@@ -58,12 +78,33 @@ SkipWindows             - When set to "$true" will skip the on/off-boarding logi
 
 SkipMac                 - When set to "$true" will skip the on/off-boarding logic for MacOS endpoints and acccounts.
 
+SkipLinux               - When set to "$true" will skip the on/off-boarding logic for Linux endpoints and acccounts.
+
+SendSummaryEmail        - When set to "$true" will send an execution summary E-Mail to the recipient configured in $EmailToAddress.
+
+EmailWithSsl            - When set to "$true" will send the execution summary E-Mail using SSL/TLS.
+
+VersionCheck            - When set to "$true" will compare to the latest script available on GitHub and log/notify if a new version is available.
+
+ValidateDomainNamesDNS  - When set to "$true" will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
+                          Used with "EndpointDomainNames" (See entry above for more details).
+                          Used with "SkipIfNotInDNS" (See entry below for more details).
+
+SkipIfNotInDNS          - When set to "$true" will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to "$false",
+                          endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.
+                          Only used when "ValidateDomainNamesDNS" is set to $true, otherwise this can be ignored.
+
+IgnoreSSLCertErrors     - When set to "$true" will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection.
+                          It is recommended to leave this value as "$false" to ensure certificates are verified!
+
 EndpointUserNamesWin    - List of one or more usernames to lifecycle manage for all Windows-based EPM endpoints.
 
 EndpointUserNamesMac    - List of one or more usernames to lifecycle manage for all Mac-based EPM endpoints.
 
+EndpointUserNamesLinux  - List of one or more usernames to lifecycle manage for all Linux-based EPM endpoints.
+
 EndpointDomainNames     - List of one or more DNS domain names that EPM endpoints have membership to.  
-                          Applicable only for Windows endpoints as Mac endpoints are assumed to have no domain name.  
+                          Applicable only for Windows endpoints as Mac/Linux endpoints are assumed to have an incorporated domain/DNS suffix (if any).  
                           Used with the "ValidateDomainNamesDNS" and "SkipIfNotInDNS" -- See below for complete info on these variables
                             - If "ValidateDomainNamesDNS" is set to "$false", "EndpointDomainNames" must be set to a single domain name or empty (i.e. "").  
                             - If "ValidateDomainNamesDNS" is set to "$true", "EndpointDomainNames" may remain empty, contain a single domain name, or 
@@ -93,13 +134,17 @@ EndpointDomainNames     - List of one or more DNS domain names that EPM endpoint
                             $ValidateDomainNamesDNS = $true
                             $SkipIfNotInDNS = $false
 
-OnboardingPlatformIdWin - Platform ID for the platform to use when on-boarding Windows LCD accounts.
+OnboardingPlatformIdWin     - Platform ID for the platform to use when on-boarding Windows LCD accounts.
 
-OnboardingPlatformIdMac - Platform ID for the platform to use when on-boarding MacOS LCD accounts.
+OnboardingPlatformIdMac     - Platform ID for the platform to use when on-boarding MacOS LCD accounts.
+
+OnboardingPlatformIdLinux   - Platform ID for the platform to use when on-boarding Linux LCD accounts.
 
 OnboardingSafesWin       - A list of one or more Safes that Windows LCD accounts will be on-boarded into.
 
 OnboardingSafesMac       - A list of one or more Safes that MacOS LCD accounts will be on-boarded into.
+
+OnboardingSafesLinux     - A list of one or more Safes that Linux LCD accounts will be on-boarded into.
 
 LCDPlatformSearchRegex  - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be 
                           considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, 
@@ -114,18 +159,13 @@ EPMSetIDs               - List of the EPM Set IDs to use for this process.  May 
 
 EPMRegion               - The region of your EPM SaaS tenant.  Must be set to one of the following values:  US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA
 
-PAMHostname             - The base hostname of the Self-Hosted PAM or Privilege Cloud (Standard/Standalone) (i.e. "subdomain.privilegecloud.cyberark.com")
+PAMHostname             - The base hostname of the Self-Hosted PAM or Privilege Cloud (i.e. "subdomain.privilegecloud.cyberark.com" or "subdomain.cyberark.cloud")
 
-IgnoreSSLCertErrors     - When set to "$true" will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection.
-                          It is recommended to leave this value as "$false" to ensure certificates are verified!
+SMTPRelayHostname       - The hostname (FQDN or IP) of the SMTP relay you would like to send the execution summary E-Mail.
 
-ValidateDomainNamesDNS  - When set to "$true" will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
-                          Used with "EndpointDomainNames" (See entry above for more details).
-                          Used with "SkipIfNotInDNS" (See entry below for more details).
+EmailFromAddress        - The "From" address to be used when sending the execution summary E-Mail.
 
-SkipIfNotInDNS          - When set to "$true" will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to "$false",
-                          endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.
-                          Only used when "ValidateDomainNamesDNS" is set to $true, otherwise this can be ignored.
+EmailToAddress          - The "To" recipient to use when sending the execution summary E-Mail.
 
 APIUserSource           - Determines the source for PAM and EPM API credential lookup.  There are two possible settings:
 
@@ -192,15 +232,14 @@ AUTHOR:
 Craig Geneske
 
 VERSION HISTORY:
-1.0     8/24/2023   - Initial Release
-1.0.1   8/29/2023   - Added safety mechanism
-1.0.2   9/15/2023   - Added safe pooling
+1.0.0   8/24/2023   - Initial Release
+1.1.0   8/29/2023   - Added safety mechanism
+1.2.0   9/15/2023   - Added safe pooling
+1.3.0   11/30/2023  - Added E-Mail notification, PSScriptInfo version check, Linux LCD, and Privilege Cloud Shared Services support
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
 #>
-
-#Requires -Version 5.0
 
 using namespace System.Collections.Generic 
 
@@ -217,25 +256,35 @@ $SkipOnBoarding = $false
 $SkipOffBoarding = $false
 $SkipWindows = $false
 $SkipMac = $false
+$SkipLinux = $false
+
+#Auxillary Options
+$SendSummaryEmail = $true
+$EmailWithSsl = $true
+$VersionCheck = $true
+$ValidateDomainNamesDNS = $true
+$SkipIfNotInDNS = $false
+$IgnoreSSLCertErrors = $false
 
 #General Environment Details
 $EndpointUserNamesWin = "Administrator"
 $EndpointUserNamesMac = "mac_admin"
-$EndpointDomainNames = ""
+$EndpointUserNamesLinux = "root"
 $OnboardingPlatformIdWin = "WinLooselyDevice"
 $OnboardingPlatformIdMac = "MACLooselyDevice"
+$OnboardingPlatformIdLinux = "UnixLooselyDevice"
 $OnboardingSafesWin = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $OnboardingSafesMac = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
+$OnboardingSafesLinux = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
+$EndpointDomainNames = ""
 $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = ""
 $EPMSetIDs = ""
 $EPMRegion = "US"
 $PAMHostname = "hostname"
-$IgnoreSSLCertErrors = $false
-
-#Dynamic FQDN Lookup Options
-$ValidateDomainNamesDNS = $true
-$SkipIfNotInDNS = $false
+$SMTPRelayHostname = "hostname"
+$EmailFromAddress = "donotreply@domaindotcom"
+$EmailToAddress = "recipient@domaindotcom"
 
 #Source for PAM and EPM API credentials
 $APIUserSource = [APIUserSource]::CyberArkCCP 
@@ -253,7 +302,7 @@ $EPMAccountName = "lifecycle_epm_api.pass"
 $EPMObjectSafe = "EPM Lifecycle API"
 $CCPHostname = "hostname"
 $CCPPort = 443
-$CCPServiceRoot = "AIMWebService"
+$CCPServiceRoot = "AIMWebServiceIWA"
 $CCPAppID = "EPM LCD Lifecycle"
 
 #############################
@@ -263,6 +312,7 @@ $CCPAppID = "EPM LCD Lifecycle"
 $LogFilePath = $PSScriptRoot + "\Logs\$($MyInvocation.MyCommand.Name.Substring(0, $MyInvocation.MyCommand.Name.Length - 4))_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".log"
 $ReportFilePath = $PSScriptRoot + "\Reports\$($MyInvocation.MyCommand.Name.Substring(0, $MyInvocation.MyCommand.Name.Length - 4))_" + (Get-Date -Format "MM-dd-yyyy_HHmmss") + ".csv"
 $DatFilePath = $($PSCommandPath).Substring(0, $PSCommandPath.Length - 4) + ".dat"
+$PSScriptInfo = Test-ScriptFileInfo -Path $PSCommandPath
 
 $EnableSafety = $true
 $SafetyTriggered = $false
@@ -277,7 +327,16 @@ $MaxSafeObjects = 30000
 $WarnSafeObjects = 28000
 $BulkChunkLimit = 10000
 
-$PAMBaseURI = "https://$PAMHostname/PasswordVault"
+$OriginScriptUri = "https://raw.githubusercontent.com/cgeneske/CyberArkEPMLCDLifecycle/main/CyberArk_EPMLCD_Lifecycle.ps1"
+
+if ($PAMHostname -match "\.cyberark\.cloud$") {
+    $PrivCloudHostname = $PAMHostname.Replace(".cyberark.cloud", ".privilegecloud.cyberark.cloud")
+    $PAMBaseURI = "https://$PrivCloudHostname/PasswordVault"
+}
+else {
+    $PAMBaseURI = "https://$PAMHostname/PasswordVault"
+}
+
 $PAMSessionToken = $null
 
 $PAMAuthLogonUrl = $PAMBaseURI + "/api/auth/CyberArk/Logon"
@@ -702,6 +761,7 @@ Function Invoke-APIAuthentication {
         The following script-level variables are used: 
             - $PAMAuthLogonUrl
             - $EPMAuthLogonUrl
+            - $PAMHostname
         
         Author: Craig Geneske
     #>
@@ -715,30 +775,54 @@ Function Invoke-APIAuthentication {
     $APIAuthUrl = $null
     $postBody = $null
 
+    Write-Log -Type INF -Message "Attempting to authenticate to [$App] API..."
+
     switch ($App) {
         "PAM" {
-            $APIAuthUrl = $PAMAuthLogonUrl
-            $postBody = @{
-                concurrentSession = $true 
+            if ($PAMHostname -match "\.cyberark\.cloud$") {
+                try{
+                    $IdentityTenantUri = [System.Uri](Invoke-WebRequest -Uri "https://$PAMHostname" -MaximumRedirection 0 -ErrorAction Ignore).Headers.Location
+                    $APIAuthUrl = "https://$($IdentityTenantUri.Host)/oauth2/platformtoken"
+                    $postBody = "grant_type=client_credentials&client_id=$([System.Web.HttpUtility]::UrlEncode($APICred.Username))&client_secret=$([System.Web.HttpUtility]::UrlEncode($APICred.Password))"
+                    $contentType = "application/x-www-form-urlencoded"
+                }
+                catch {
+                    Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API, there was a problem trying to locate the CyberArk Identity Shared Services tenant"
+                    $APICred = $null
+                    $postBody = $null
+                    throw
+                }
+            }
+            else {
+                $APIAuthUrl = $PAMAuthLogonUrl
+                $postBody = @{
+                    concurrentSession = $true 
+                    Username = $APICred.Username
+                    Password = $APICred.Password
+                } | ConvertTo-Json
+                $contentType = "application/json"
             }
         }
         "EPM" {
             $APIAuthUrl = $EPMAuthLogonUrl
             $postBody = @{
+                Username = $APICred.Username
+                Password = $APICred.Password
                 ApplicationID = "EPM LCD Lifecycle"
-            }
+            } | ConvertTo-Json
+            $contentType = "application/json"
         }
     }
-
-    $postBody.Add("Username", $APICred.Username)
-    $postBody.Add("Password", $APICred.Password)
-    $postBody = $postBody | ConvertTo-Json
     
     try {
-        Write-Log -Type INF -Message "Attempting to authenticate to [$App] API..."
-        $result = Invoke-RestMethod -Method Post -Uri $APIAuthUrl -Body $postBody -ContentType "application/json"
+        $result = Invoke-RestMethod -Method Post -Uri $APIAuthUrl -Body $postBody -ContentType $contentType
         Write-Log -Type INF -Message "Successfully authenticated to [$App] API"
-        return $result
+        if ($App -match "PAM" -and $PAMHostname -match "\.cyberark\.cloud$") {
+            return "Bearer " + $result.access_token
+        }
+        else {
+            return $result
+        }
     }
     catch {
         Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API"
@@ -763,13 +847,16 @@ Function Invoke-APILogoff {
         The following script-level parameteres are used:
             - $PAMAuthLogoffUrl
             - $PAMSessionToken
+            - $PAMHostname
 
         Author: Craig Geneske
     #>
     try {
-        Write-Log -Type INF -Message "Attempting to logoff PAM API..."
-        Invoke-RestMethod -Method Post -Uri $PAMAuthLogoffUrl -Headers @{ Authorization = $PAMSessionToken} *> $null
-        Write-Log -Type INF -Message "PAM API logoff was successful"
+        if ($PAMHostname -notmatch "\.cyberark\.cloud$") {
+            Write-Log -Type INF -Message "Attempting to logoff PAM API..."
+            Invoke-RestMethod -Method Post -Uri $PAMAuthLogoffUrl -Headers @{ Authorization = $PAMSessionToken} *> $null
+            Write-Log -Type INF -Message "PAM API logoff was successful"
+        }
     } 
     catch {
         Write-Log -Type WRN -Message "Unable to logoff PAM API - $($_.Exception.Message)"
@@ -895,10 +982,15 @@ Function Get-PAMActiveLCDPlatforms {
             elseif ($platform.general.platformBaseId -match "^Unix$" -and $SkipMac) {
                 continue
             }
+            elseif ($platform.general.platformBaseId -match "^UnixLooselyDevice$" -and $SkipLinux) {
+                continue
+            }
             else {
                 foreach ($pattern in $LCDPlatformSearchRegex) {
                     if ($platform.general.id -match $pattern -and `
-                        ($platform.general.platformBaseId -match "^WinLooselyDevice$" -or $platform.general.platformBaseId -match "^Unix$")) {
+                        ($platform.general.platformBaseId -match "^WinLooselyDevice$" -or `
+                         $platform.general.platformBaseId -match "^Unix$" -or `
+                         $platform.general.platformBaseId -match "^UnixLooselyDevice$")) {
                         $platformList.Add([PSCustomObject]@{
                             PlatformID = $platform.general.id
                             PlatformBaseID = $platform.general.platformBaseID
@@ -954,6 +1046,7 @@ Function Get-PAMLCDAccounts {
     $safePool = @{
         Windows = @{}
         MacOS = @{}
+        Linux = @{}
     }
     $result = $null
     $pageCounter = 0
@@ -977,6 +1070,16 @@ Function Get-PAMLCDAccounts {
         }
         else {
             $safePool['MacOS'][$safe] = 0
+        }
+    }
+
+    foreach ($safe in $OnboardingSafesLinux) {
+        $data = $safePool['Linux'][$safe]
+        if ($data -eq 0) {
+            continue
+        }
+        else {
+            $safePool['Linux'][$safe] = 0
         }
     }
     
@@ -1007,6 +1110,9 @@ Function Get-PAMLCDAccounts {
                     }
                     if ($safePool['MacOS'][$account.safeName] -ge 0) {
                         $safePool['MacOS'][$account.safeName]++
+                    }
+                    if ($safePool['Linux'][$account.safeName] -ge 0) {
+                        $safePool['Linux'][$account.safeName]++
                     }
                     $accountsCounter++
                     $isCandidate = $false
@@ -1058,7 +1164,7 @@ Function Get-PAMLCDAccounts {
     if ($accountsCounter -eq 0) {
         Write-Log -Type WRN -Message "No accounts were found in PAM!  If this is unexpected, ensure your PAM API user has been granted the required privileges to the Safes that are in scope for LCD"
     }
-    Compare-ChangeFactor -PropertyName PAMAccounts -Threshold $SafetyThresholdPAM -Value $PAMAccountsList.Count
+    Compare-ChangeFactorAndUpdate -PropertyName PAMAccounts -Threshold $SafetyThresholdPAM -Value $PAMAccountsList.Count
     return $PAMAccountsList, $safePool
 }
 
@@ -1155,18 +1261,21 @@ Function Get-EPMComputers {
                     ContentType = "application/json"
                 }
                 $result = Invoke-EPMRestMethod -Parameters $ParamsHt
-                foreach ($computer in $result.Computers) {   
-                    if ($computer.Platform -eq "MacOS" -and $SkipMac) {
-                        $ignoreList.Add($computer)
-                        Add-Content -Path $ReportFilePath -Value "N/A,$($computer.ComputerName),$($computer.Platform),Ignored,Reported,MacOS lifecycle is disabled per the run configuration" -ErrorAction SilentlyContinue *> $null
-                        continue
+                foreach ($computer in $result.Computers) {  
+                    #At present, EPM API returns a Platform of "Unknown" for Linux computers.  
+                    #Transforming these to a Platform of "Linux". 
+                    if ($computer.Platform -eq "Unknown") {
+                        $computer.Platform = "Linux"
                     }
-                    elseif ($computer.Platform -eq "Windows" -and $SkipWindows) {
-                        $ignoreList.Add($computer)
-                        Add-Content -Path $ReportFilePath -Value "N/A,$($computer.ComputerName),$($computer.Platform),Ignored,Reported,Windows lifecycle is disabled per the run configuration" -ErrorAction SilentlyContinue *> $null
-                        continue
+
+                    if (($computer.Platform -eq "MacOS" -and $SkipMac) -or `
+                        ($computer.Platform -eq "Windows" -and $SkipWindows) -or `
+                        ($computer.Platform -eq "Linux" -and $SkipLinux)) {
+                            $ignoreList.Add($computer)
+                            Add-Content -Path $ReportFilePath -Value "N/A,$($computer.ComputerName),$($computer.Platform),Ignored,Reported,Lifecycle for this platform is disabled per the run configuration" -ErrorAction SilentlyContinue *> $null
+                            continue
                     }
-                    elseif ($computer.Platform -ne "Unknown") {
+                    else {
                         $computersCounter++
                         $EPMComputerList.Add($computer)
                     }
@@ -1247,7 +1356,7 @@ Function Get-EPMComputers {
         
     }
     Write-Log -Type INF -Message "EPM computer qualification complete"
-    Compare-ChangeFactor -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value $qualifiedComps.Count
+    Compare-ChangeFactorAndUpdate -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value $qualifiedComps.Count
     return $qualifiedComps, $ignoreList
 }
 
@@ -1309,6 +1418,7 @@ Function Add-PAMAccountsBulk {
         switch ($account.Platform) {
             "Windows" { $platformId = $OnboardingPlatformIdWin }
             "MacOS" { $platformId = $onboardingPlatformIdMac }
+            "Linux" { $platformId = $OnboardingPlatformIdLinux }
             default { throw "Platform not implemented" }
         }
         if ($count++ -eq $BulkChunkLimit) {
@@ -1616,12 +1726,13 @@ Function Confirm-ScriptVariables {
     Write-Log -Type INF -Message "Script variables have been successfully validated"
 }
 
-Function Compare-ChangeFactor {
+Function Compare-ChangeFactorAndUpdate {
      <#
     .SYNOPSIS
         Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold
     .DESCRIPTION
-        Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold
+        Compares the input value against the DAT file's value to determine if the change factor exceeds the allowed threshold.
+        If within threshold, or safety is disabled, the DAT file is also updated.
     .PARAMETER PropertyName
         Name of the property within the DAT file to look for
     .PARAMETER Threshold
@@ -1629,12 +1740,12 @@ Function Compare-ChangeFactor {
     .PARAMETER Value
         Value to use for comparison
     .EXAMPLE
-        Compare-ChangeFactor -PropertyName "EPMComputers" -Threshold 0.10 -Value 123
+        Compare-ChangeFactorAndUpdate -PropertyName "EPMComputers" -Threshold 0.10 -Value 123
     .NOTES
         The following script-level variables are used:
             - $DatFilePath
             - $EnableSafety
-            - $SafetyThreshold
+            - $SafetyTriggered
         Author: Craig Geneske
     #>
     Param(
@@ -1649,28 +1760,26 @@ Function Compare-ChangeFactor {
         [int]$Value
     )
 
-    try{
-        $datFile = Get-Content -Path $DatFilePath | ConvertFrom-Json
-        if (!(Get-Member -InputObject $datfile -Name $PropertyName -MemberType Properties)) {
-            throw "DAT file does not contain the [$PropertyName] property, please delete the DAT file and try again"
+    if ($enableSafety) {
+        try{
+            $datFile = Get-Content -Path $DatFilePath | ConvertFrom-Json
+            if (!(Get-Member -InputObject $datfile -Name $PropertyName -MemberType Properties)) {
+                throw "DAT file does not contain the [$PropertyName] property, consider deleting the DAT file and trying again in report-only mode"
+            }
         }
-    }
-    catch {
-        Write-Log -Type ERR -Message "Something went wrong processing the DAT file --> $($_.Exception.Message)"
-        throw
-    }
-    if($datFile.$PropertyName -ne -1 -and $datFile.$PropertyName -ne 0) {
-        $changeFactor = [Math]::Abs($value - $datFile.$PropertyName) / $datfile.$PropertyName
-        if ($changeFactor -ge $Threshold) {
-            if ($ReportOnlyMode) {
-                if ($EnableSafety) {
-                    Set-Variable -Name SafetyTriggered -Scope Script -Value $true
+        catch {
+            Write-Log -Type ERR -Message "Something went wrong processing the DAT file --> $($_.Exception.Message)"
+            throw
+        }
+        if($datFile.$PropertyName -ne -1 -and $datFile.$PropertyName -ne 0) {
+            $changeFactor = [Math]::Abs($value - $datFile.$PropertyName) / $datfile.$PropertyName
+            if ($changeFactor -ge $Threshold) {
+                Set-Variable -Name SafetyTriggered -Scope Script -Value $true
+                if ($ReportOnlyMode) {
                     Write-Log -Type WRN "There has been a change of [$($Value - $datFile.$PropertyName) ($([math]::Round($changeFactor * 100))%)] for [$PropertyName] and this will exceed the configured safety threshold of [$Threshold ($([math]::Round($Threshold * 100))%)] in production mode"
                     return
                 }
-            }
-            else {
-                if($EnableSafety) {
+                else {
                     Write-Log -Type ERR "There has been a change of [$($Value - $datFile.$PropertyName) ($([math]::Round($changeFactor * 100))%)] for [$PropertyName] and this exceeds the configured safety threshold of [$Threshold ($([math]::Round($Threshold * 100))%)]"
                     throw
                 }
@@ -1788,6 +1897,7 @@ Function Get-OnBoardingCandidates {
         switch ($comp.Platform) {
             "Windows" { $usernameList = $EndpointUserNamesWin}
             "MacOS" { $usernameList = $EndpointUserNamesMac}
+            "Linux" { $usernameList = $EndpointUserNamesLinux}
         }
         foreach ($username in $usernameList) {
             if ($potentialOnboardCandidates) {
@@ -1891,6 +2001,7 @@ Function Get-OffBoardingCandidates {
             switch ($account.PlatformBaseID) {
                 "WinLooselyDevice" { $usernameList = $EndpointUserNamesWin; $compPlatform = "Windows" }
                 "Unix" { $usernameList = $EndpointUserNamesMac; $compPlatform = "MacOS" }
+                "UnixLooselyDevice" { $usernameList = $EndpointUserNamesLinux; $compPlatform = "Linux" }
             }
             foreach ($username in $usernameList) {
                 if ($account.Instance.UserName -match "^$username$") {
@@ -1927,7 +2038,8 @@ Function Write-PAMLifecycleReport {
         Write-Report -OnboardCandidates $onboardCandidates -OffboardCandidates $offboardCandidates -IgnoreList $ignoreList
     .NOTES
         The following script-level variables are used:
-        - ReportFilePath
+        - $ReportFilePath
+        - $SafetyTriggered
         
         Author: Craig Geneske
     #>
@@ -1986,10 +2098,227 @@ Function Write-PAMLifecycleReport {
     Write-Log -Type INF -Message "###################################################################"
 }
 
+Function Test-LatestScriptVersion {
+    <#
+    .SYNOPSIS
+        Determines if this script is the lastest version available on GitHub.
+    .DESCRIPTION
+        Determines if this script is the latest version available on GitHub.  If a newer version is available, logs
+        an event and returns the latest version as a string.  If up-to-date, returns an empty string.
+    .EXAMPLE
+        $Version = Test-LatestScriptVersion
+    .NOTES
+        The following script-level variables are used:
+        - $OriginScriptUri
+        - $PSScriptInfo
+        
+        Author: Craig Geneske
+    #>
+    try {
+        Write-Log -Type INF -Message "Checking script version - current version is [$($PSScriptInfo.Version.ToString())]..."   
+        $tmpFile = New-TemporaryFile -ErrorAction Stop
+        $withNewExtension = $tmpFile.BaseName + ".ps1"
+        $tmpFile = $tmpFile | Rename-Item -NewName $withNewExtension -PassThru -ErrorAction Stop
+        (Invoke-WebRequest -UseBasicParsing -Uri $OriginScriptUri -ErrorAction Stop).Content | Set-Content -Path $tmpFile
+        $originScriptVer = [version](Test-ScriptFileInfo -Path $tmpFile -ErrorAction Stop).Version
+        if ($originScriptVer -gt [version]$PSScriptInfo.Version) {
+            Write-Log -Type WRN -Message "There is a newer version [$($originScriptVer.ToString())] available on GitHub!"
+            return $originScriptVer.ToString()
+        }
+        else {
+            Write-Log -Type INF -Message "Script is on the latest version"
+        }
+    }
+    catch {
+        Write-Log -Type WRN -Message "There was an issue determining script latest version --> $($_.Exception.Message)"
+        $Error.Clear()
+    }
+    finally {
+        if (Test-Path -Path $tmpFile) {
+            Remove-Item -Path $tmpFile -ErrorAction SilentlyContinue *> $null
+        }
+    }
+    return ""
+}
+
+Function Send-PAMLifecycleEmail {
+<#
+    .SYNOPSIS
+        Compiles summary of execution results and sends via plaintext E-Mail.
+    .DESCRIPTION
+        Compiles summary of execution results and sends via plaintext E-Mail.  If a newer script version is
+        available on GitHub, this detail will also be included in the subject and body.  If a failure is 
+        detected either in the core flow or in lifecycle actions for a particular account in PAM, this is
+        also indicated in the subject and body.
+    .PARAMETER NewVersionAvailable
+        Version number as a string.
+    .PARAMETER StartTime
+        DateTime that denotes the time that script execution began.
+    .PARAMETER EndTime
+        DateTime that denotes the time that script execution ended.
+    .EXAMPLE
+        Send-PAMLifecycleEmail
+    .NOTES
+        The following script-level variables are used:
+        - $SendSummaryEmail
+        - $SafetyTriggered
+        - $ReportOnlyMode
+        - $EmailWithSsl
+        - $SMTPRelayHostname
+        - $EmailFromAddress
+        - $EmailToAddress
+        - $PSScriptInfo
+        
+        Author: Craig Geneske
+    #>
+
+    Param(
+        [Parameter(Mandatory = $false)]
+        [string]$NewVersionAvailable = "",
+
+        [Parameter(Mandatory = $true)]
+        [datetime]$StartTime,
+
+        [Parameter(Mandatory = $true)]
+        [datetime]$EndTime
+    )
+
+    Write-Log -Type INF -Message "Attempting to send summary E-Mail..."
+
+    try {
+        $subject = "CyberArk EPM LCD Lifecycle Utility [$($PSScriptInfo.Version.ToString())] VarSubjNewVer- Execution Summary | + VarSubjOnBoarded | - VarSubjOffBoarded | VarSubjStatusVarSubjMode"
+        $body = @"
+Dear CyberArk Administrator,
+VarNewVer
+An execution of the CyberArk EPM LCD Lifecycle UtilityVarReportOnly has completed VarCompletionStatus
+
+Execution Start - VarExecutionStart
+Execution End   - VarExecutionEnded
+Elapsed [HH:MM:SS] - VarExecutionTime
+
+Total # On-BoardedVarIsPlanned: VarOnBoarded
+Total # Off-BoardedVarIsPlanned: VarOffBoarded VarOnboardingFailures VarOffboardingFailures VarAnyFailures VarReportExists VarReviewLog
+
+Regards,
+Your Friendly Neighborhood CyberArk Automation
+"@
+        if ($NewVersionAvailable) {
+            $subject = $subject.Replace("VarSubjNewVer", "(New Ver. Available!) ")
+            $body = $body.Replace("VarNewVer", "`nA new version of this utility [$NewVersionAvailable] is available at the project page $($PSScriptInfo.PROJECTURI)`n")
+        }
+        else {
+            $subject = $subject.Replace("VarSubjNewVer", "")
+            $body = $body.Replace("VarNewVer", "")
+        }
+
+        $body = $body.Replace("VarExecutionStart", $StartTime.ToString())
+        $body = $body.Replace("VarExecutionEnded", $EndTime.ToString())
+        $body = $body.Replace("VarExecutionTime", ($EndTime - $StartTime).ToString().Substring(0, ($EndTime - $StartTime).ToString().IndexOf('.')))
+
+        $onBoardSuccess = 0
+        $offBoardSuccess = 0
+        $onBoardFailures = 0
+        $offBoardFailures = 0
+        if (Test-Path -Path $ReportFilePath) {
+            $body = $body.Replace("VarReportExists", "`n`nFor more information on the lifecycle activitiesVarWouldHave conducted in PAM, please see the full report on your utility host at `"$ReportFilePath`"`n")
+            $results = Import-Csv -Path $ReportFilePath
+            foreach ($result in $results) {
+                if ($result.Action -match "Onboarding") {
+                    if ($result.Status -match "Reported|Success") {
+                        $onBoardSuccess++
+                        continue
+                    }
+                    else {
+                        $onBoardFailures++
+                        continue
+                    }
+                }
+                if ($result.Action -match "Offboarding") {
+                    if ($result.Status -match "Reported|Success") {
+                        $offBoardSuccess++
+                        continue
+                    }
+                    else {
+                        $offBoardFailures++
+                        continue
+                    }
+                }
+            }
+        }
+        else {
+            $body = $body.Replace("VarReportExists", "")
+        }
+
+        $subject = $subject.Replace("VarSubjOnBoarded", $onBoardSuccess)
+        $subject = $subject.Replace("VarSubjOffBoarded", $offBoardSuccess)
+        $body = $body.Replace("VarOnBoarded", $onBoardSuccess)
+        $body = $body.Replace("VarOffBoarded", $offBoardSuccess)
+
+        if ($onBoardFailures) {
+            $body = $body.Replace("VarOnboardingFailures", "`nTotal # of On-Boarding Failures: $onBoardFailures")
+            $subject = $subject.Replace("VarSubjStatus", "FAILURE")
+        }
+        if ($offBoardFailures) {
+            $body = $body.Replace("VarOffboardingFailures", "`nTotal # of Off-Boarding Failures: $offBoardFailures")
+            $subject = $subject.Replace("VarSubjStatus", "FAILURE")
+        }
+        if ($SafetyTriggered) {
+            $body = $body.Replace("VarAnyFailures", "`n`nThe safety mechanism has been triggered due to excessive changes in PAM or EPM.")
+            $body = $body.Replace("VarReviewLog", "`n`nPlease review the log file on your utility host at `"$LogFilePath`" for more details.")
+            $subject = $subject.Replace("VarSubjStatus", "FAILURE")
+            $body = $body.Replace("VarCompletionStatus", "with errors.")
+        }
+        elseif (!$onBoardFailures -and !$offBoardFailures) {
+            if (!$ReportOnlyMode -and ($onBoardSuccess -or $offBoardSuccess)) {
+                $body = $body.Replace("VarAnyFailures", "`n`nThere were no reported lifecycle activity failures against PAM during this execution.")
+            }
+        }
+
+        $body = $body.Replace("VarOnboardingFailures", "")
+        $body = $body.Replace("VarOffboardingFailures", "")
+        $body = $body.Replace("VarAnyFailures", "")
+
+        if ($Error.Count) {
+            $subject = $subject.Replace("VarSubjStatus", "FAILURE")
+            $body = $body.Replace("VarCompletionStatus", "with errors.")
+            $body = $body.Replace("VarReviewLog", "`n`nPlease review the log file on your utility host at `"$LogFilePath`" for more details.")
+        }
+        else {
+            $subject = $subject.Replace("VarSubjStatus", "SUCCESS")
+            $body = $body.Replace("VarCompletionStatus", "successfully.")
+            $body = $body.Replace("VarReviewLog", "")
+        }
+
+        if ($ReportOnlyMode) {
+            $subject = $subject.Replace("VarSubjMode", " (Report-Only Mode)")
+            $body = $body.Replace("VarReportOnly", " in report-only mode")
+            $body = $body.Replace("VarIsPlanned", " (Planned)")
+            $body = $body.Replace("VarWouldHave", " that would have been")
+        }
+        else {
+            $subject = $subject.Replace("VarSubjMode", "")
+            $body = $body.Replace("VarReportOnly", "")
+            $body = $body.Replace("VarIsPlanned", " (Actual)")
+            $body = $body.Replace("VarWouldHave", "")
+        }
+    }
+    catch {
+        Write-Log -Type WRN -Message "Failed to prepare E-Mail subject and body --> $($_.Exception.Message)"
+    }
+    try {
+        Send-MailMessage -Subject $subject -Body $body -To $EmailToAddress -From $EmailFromAddress -SmtpServer $SMTPRelayHostname -usessl:$EmailWithSsl -ErrorAction Stop *> $null
+        Write-Log -Type INF -Message "Summary E-Mail has been sent successfully"
+    }
+    catch {
+        Write-Log -Type WRN -Message "Failed to send summary E-Mail --> $($_.Exception.Message)"
+    }
+}
+
 #endregion
 
 ################################################### SCRIPT ENTRY POINT ##################################################
 
+$MainStart = [datetime]::Now
 $Error.Clear()
 
 #Create Log File
@@ -2033,6 +2362,7 @@ if (!(Test-Path -Path $DatFilePath)) {
 #Print Log/Console Header
 Write-Log -Header
 
+#Set Certificate Validation Preference
 if ($IgnoreSSLCertErrors) {
     [System.Net.ServicePointManager]::ServerCertificateValidationCallback = [CACertValidation]::GetDelegate()
     Write-Log -Type WRN -Message "You have disabled SSL Certificate validation, this setting is NOT recommended!"
@@ -2041,9 +2371,16 @@ else {
     [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
 }
 
+#Enforce TLS 1.2
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
 try {
+    #Check if Script is Latest Available
+    $Version = ""
+    if ($VersionCheck) {
+        $Version = Test-LatestScriptVersion
+    }
+
     Confirm-ScriptVariables
 
     Set-Variable -Scope Script -Name PAMSessionToken -Value $(Invoke-APIAuthentication -App PAM)
@@ -2103,6 +2440,7 @@ catch {
 } 
 finally {
     $returnCode = 0
+    $MainEnd = [datetime]::Now
     if ($Error.Count) {
         Write-Log -Type WRN -Message "Script execution is being interrupted, aborting"
         $returnCode = 1
@@ -2115,9 +2453,9 @@ finally {
         Invoke-APILogoff
         Set-Variable -Scope Script -Name PAMSessionToken -Value $null
     }
-    if ($EPMSessionInfo) {
-        $EPMSessionInfo = $null
-    }
+
+    $EPMSessionInfo = $null
+    $PAMSessionToken = $null
 
     #Deleting report file if nothing was written to it
     if (Test-Path -Path $ReportFilePath) {
@@ -2125,6 +2463,10 @@ finally {
         if ($numLines -eq 1) {
             Remove-Item -Path $ReportFilePath -Force -ErrorAction SilentlyContinue *> $null
         }
+    }
+
+    if($SendSummaryEmail) {
+        Send-PAMLifecycleEmail -NewVersionAvailable $Version -StartTime $MainStart -EndTime $MainEnd
     }
 
     Write-Log -Footer
