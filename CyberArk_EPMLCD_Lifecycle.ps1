@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.3.0
+.VERSION 1.4.0
 
 .GUID cf187d04-2d7d-48aa-94cf-80d4f33f6a68
 
@@ -8,7 +8,7 @@
 
 .DESCRIPTION CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD)
 
-.COPYRIGHT Copyright (c) 2023 Craig Geneske
+.COPYRIGHT Copyright (c) 2024 Craig Geneske
 
 .LICENSEURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle/blob/main/LICENSE.md 
 
@@ -84,6 +84,8 @@ SendSummaryEmail        - When set to "$true" will send an execution summary E-M
 
 EmailWithSsl            - When set to "$true" will send the execution summary E-Mail using SSL/TLS.
 
+EmailFullReportAndLog   - When set to "$true" will add the log file and report (CSV) as attachments to the execution summary E-Mail.
+
 VersionCheck            - When set to "$true" will compare to the latest script available on GitHub and log/notify if a new version is available.
 
 ValidateDomainNamesDNS  - When set to "$true" will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
@@ -133,6 +135,10 @@ EndpointDomainNames     - List of one or more DNS domain names that EPM endpoint
                             $EndpointDomainNames = @("cybr.com", "childA.cybr.com", "childB.cybr.com")
                             $ValidateDomainNamesDNS = $true
                             $SkipIfNotInDNS = $false
+
+EndpointHostnameExclusionsRegex     - Regular expression for determining which EPM endpoints (Computer Name) or PAM accounts (Address) should be excluded
+                                      from lifecycle management activities.  Supports a list of regex strings to help simplify more complex needs at scale.
+                                      If left as an empty string (default), there will be no exclusions made by hostname.
 
 OnboardingPlatformIdWin     - Platform ID for the platform to use when on-boarding Windows LCD accounts.
 
@@ -236,6 +242,8 @@ VERSION HISTORY:
 1.1.0   8/29/2023   - Added safety mechanism
 1.2.0   9/15/2023   - Added safe pooling
 1.3.0   11/30/2023  - Added E-Mail notification, PSScriptInfo version check, Linux LCD, and Privilege Cloud Shared Services support
+1.4.0   1/29/2024   - Added ability to exclude hostname patterns from management scope (regex), and optional E-Mail attachments for 
+                      the log and report files.
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -261,6 +269,7 @@ $SkipLinux = $false
 #Auxillary Options
 $SendSummaryEmail = $true
 $EmailWithSsl = $true
+$EmailFullReportAndLog = $false
 $VersionCheck = $true
 $ValidateDomainNamesDNS = $true
 $SkipIfNotInDNS = $false
@@ -277,6 +286,7 @@ $OnboardingSafesWin = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $OnboardingSafesMac = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $OnboardingSafesLinux = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $EndpointDomainNames = ""
+$EndpointHostnameExclusionsRegex = ""
 $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = ""
 $EPMSetIDs = ""
@@ -302,7 +312,7 @@ $EPMAccountName = "lifecycle_epm_api.pass"
 $EPMObjectSafe = "EPM Lifecycle API"
 $CCPHostname = "hostname"
 $CCPPort = 443
-$CCPServiceRoot = "AIMWebServiceIWA"
+$CCPServiceRoot = "AIMWebService"
 $CCPAppID = "EPM LCD Lifecycle"
 
 #############################
@@ -663,12 +673,14 @@ Function Get-APICredential {
                     "Safe=$([System.Web.HttpUtility]::UrlEncode($PAMObjectSafe))" + `
                     "&Object=$([System.Web.HttpUtility]::UrlEncode($PAMAccountName))" + `
                     "&AppId=$([System.Web.HttpUtility]::UrlEncode($CCPAppID))"
+                    Break
                 }
                 "EPM" {
                     $CCPGetCredentialUrl = "https://$($CCPHostname):$CCPPort/$CCPServiceRoot/api/Accounts?" + `
                     "Safe=$([System.Web.HttpUtility]::UrlEncode($EPMObjectSafe))" + `
                     "&Object=$([System.Web.HttpUtility]::UrlEncode($EPMAccountname))" + `
                     "&AppId=$([System.Web.HttpUtility]::UrlEncode($CCPAppID))"
+                    Break
                 }
             }
 
@@ -681,6 +693,7 @@ Function Get-APICredential {
             switch ($CCPAuthType) {
                 ([CCPAuthType]::OSUser) {
                     $methodArgs.Add("UseDefaultCredentials", $true)
+                    Break
                 }
                 ([CCPAuthType]::Certificate) {
                     $cert = Get-ChildItem -Path "Cert:\LocalMachine\My" | Where-Object {$_.Thumbprint -eq $CertThumbprint}
@@ -693,6 +706,7 @@ Function Get-APICredential {
                         throw
                     }
                     $methodArgs.Add("Certificate", $cert)
+                    Break
                 }
             }
         
@@ -720,9 +734,11 @@ Function Get-APICredential {
             switch ($App) {
                 "PAM" {
                     $credTarget = $PAMCredTarget
+                    Break
                 }
                 "EPM" {
                     $credTarget = $EPMCredTarget
+                    Break
                 }
             }
             try {
@@ -802,6 +818,7 @@ Function Invoke-APIAuthentication {
                 } | ConvertTo-Json
                 $contentType = "application/json"
             }
+            Break
         }
         "EPM" {
             $APIAuthUrl = $EPMAuthLogonUrl
@@ -811,6 +828,7 @@ Function Invoke-APIAuthentication {
                 ApplicationID = "EPM LCD Lifecycle"
             } | ConvertTo-Json
             $contentType = "application/json"
+            Break
         }
     }
     
@@ -1183,6 +1201,8 @@ Function Get-EPMComputers {
         $EPMEndpoints, $ignoreList = Get-EPMComputers -SessionToken "Caz2QE%2b%2b8uVbTecoGMBa1Dxr7h..." -ManagerURL "https://na123.epm.cyberark.com"
     .NOTES
         The following script-level variables are used:
+            - $EndpointDomainNames
+            - $EndpointHostnameExclusionsRegex
             - $EPMSetIDs
             - $EPMSetsListUrl
             - $EPMComputersUrl
@@ -1252,6 +1272,10 @@ Function Get-EPMComputers {
             $computersUri = ($ManagerURL + ($EPMComputersUrl -f $set.Id) + "?limit=$EPMPageSize")
             $offset = 0
             do {
+                if ($timer.elapsed.totalseconds -ge $StatusPingInterval) {
+                    Write-Log -Type INF -Message "------> Status Ping: [$computersCounter] computers processed in [$pageCounter] pages so far"
+                    $timer.Restart()
+                }
                 $result = $null
                 $paramsHt = $null
                 $paramsHt = @{
@@ -1275,20 +1299,15 @@ Function Get-EPMComputers {
                             Add-Content -Path $ReportFilePath -Value "N/A,$($computer.ComputerName),$($computer.Platform),Ignored,Reported,Lifecycle for this platform is disabled per the run configuration" -ErrorAction SilentlyContinue *> $null
                             continue
                     }
-                    else {
-                        $computersCounter++
-                        $EPMComputerList.Add($computer)
-                    }
+
+                    $computersCounter++
+                    $EPMComputerList.Add($computer)
                 }
                 if ($result.Computers.Count -eq $EPMPageSize) {
                     $offset += $EPMPageSize
                     $computersUri = ($ManagerURL + ($EPMComputersUrl -f $set.Id) + "?limit=$EPMPageSize&offset=$offset")
                 }
                 $pageCounter++
-                if ($timer.elapsed.totalseconds -ge $StatusPingInterval) {
-                    Write-Log -Type INF -Message "------> Status Ping: [$computersCounter] computers processed in [$pageCounter] pages so far"
-                    $timer.Restart()
-                }
             }
             while ($result.Computers.Count -eq $EPMPageSize)
         }
@@ -1349,8 +1368,25 @@ Function Get-EPMComputers {
             $finalSuffix = "." + $EndpointDomainNames
         }
         
+        $comp.ComputerName = $comp.ComputerName + $finalSuffix
+
+        if ($EndpointHostnameExclusionsRegex) {
+            $matchFound = $false
+            foreach ($pattern in $EndpointHostnameExclusionsRegex) {
+                if ($comp.ComputerName -match $pattern) {
+                    $matchFound = $true
+                    $ignoreList.Add($comp)
+                    Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),$($comp.Platform),Ignored,Reported,The computer name in EPM matches a hostname exclusion pattern" -ErrorAction SilentlyContinue *> $null
+                    break
+                }
+            }
+            if ($matchFound) {
+                continue
+            }
+        }
+
         $qualifiedComps.Add([PSCustomObject]@{
-            ComputerName = ($comp.ComputerName + $finalSuffix)
+            ComputerName = $comp.ComputerName
             Platform = $comp.Platform
         })
         
@@ -1416,9 +1452,9 @@ Function Add-PAMAccountsBulk {
             throw
         }
         switch ($account.Platform) {
-            "Windows" { $platformId = $OnboardingPlatformIdWin }
-            "MacOS" { $platformId = $onboardingPlatformIdMac }
-            "Linux" { $platformId = $OnboardingPlatformIdLinux }
+            "Windows" { $platformId = $OnboardingPlatformIdWin; Break }
+            "MacOS" { $platformId = $onboardingPlatformIdMac; Break }
+            "Linux" { $platformId = $OnboardingPlatformIdLinux; Break }
             default { throw "Platform not implemented" }
         }
         if ($count++ -eq $BulkChunkLimit) {
@@ -1490,6 +1526,7 @@ Function Add-PAMAccountsBulk {
                 switch ($jobStatus.Status) {
                     "Pending" {
                         Write-Log -Type INF -Message "Bulk on-boarding job [$jobIndex] of [$($jobChunksJson.Count)] is Pending"
+                        Break
                     }
                     "inProgress" {
                         if (!$inProgLogged) {
@@ -1501,18 +1538,22 @@ Function Add-PAMAccountsBulk {
                         $subTotal = $([int]$jobStatus.SucceededItems.Total + [int]$jobStatus.FailedItems.Total) 
                         $completed = [math]::Round((([int]$jobStatus.SucceededItems.Total + [int]$jobStatus.FailedItems.Total) / $job.Total) * 100)
                         Write-Log -Type INF -Message "---> Job [$jobIndex] of [$($jobChunksJson.Count)] / [$success] Succeeded / [$failed] Failed / [$subTotal of $($job.Total) ($completed%)] Complete"
+                        Break
                     }
                     "completed" {
                         Write-Log -Type INF -Message "Bulk on-boarding job [$jobIndex] of [$($jobChunksJson.Count)] has completed successfully"
                         $shouldRetry = $false
+                        Break
                     }
                     "completedWithErrors" {
                         Write-Log -Type WRN -Message "Bulk on-boarding job [$jobIndex] of [$($jobChunksJson.Count)] has completed with some errors"
                         $shouldRetry = $false
+                        Break
                     }
                     "failed" {
                         Write-Log -Type ERR -Message "Bulk on-boarding job [$jobIndex] of [$($jobChunksJson.Count)] has failed --> $($jobStatus.Result.Error)"
                         $shouldRetry = $false
+                        Break
                     }
                     default { throw "Unexpected value [$($jobStatus.Status)] while waiting for the on-boarding job to complete" }
                 }
@@ -1534,8 +1575,8 @@ Function Add-PAMAccountsBulk {
                     else {
                         foreach ($account in $jobStatus.SucceededItems.Items) {
                             switch ($account.PlatformId) {
-                                $onboardingPlatformIdWin { $platform = "Windows" }
-                                $onboardingPlatformIdMac { $platform = "MacOS" }
+                                $onboardingPlatformIdWin { $platform = "Windows"; Break }
+                                $onboardingPlatformIdMac { $platform = "MacOS"; Break }
                             }
                             Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),$platform,Onboarding,Success," -ErrorAction SilentlyContinue *> $null
                             Update-DatFile -PropertyName PAMAccounts -Value 1 -Append
@@ -1543,8 +1584,8 @@ Function Add-PAMAccountsBulk {
                         }
                         foreach ($account in $jobStatus.FailedItems.Items) {
                             switch ($account.PlatformId) {
-                                $onboardingPlatformIdWin { $platform = "Windows" }
-                                $onboardingPlatformIdMac { $platform = "MacOS" }
+                                $onboardingPlatformIdWin { $platform = "Windows"; Break }
+                                $onboardingPlatformIdMac { $platform = "MacOS"; Break }
                             }
                             Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),$platform,Onboarding,Failed,$($account.error.Replace(",", " "))" -ErrorAction SilentlyContinue *> $null
                         }
@@ -1723,6 +1764,22 @@ Function Confirm-ScriptVariables {
         Write-Log -Type WRN -Message "Mac-based PAM Accounts (LCD) and EPM Endpoints will be skipped per configuration"
     }
 
+    if ($SkipLinux) {
+        Write-Log -Type WRN -Message "Linux-based PAM Accounts (LCD) and EPM Endpoints will be skipped per configuration"
+    }
+
+    if ($EndpointHostnameExclusionsRegex) {
+        try {
+            foreach ($pattern in $EndpointHostnameExclusionsRegex) {
+                [regex]::Match("", $pattern) *> $null
+            }
+        }
+        catch {
+            Write-Log -Type ERR -Message "Problem identified in EndpointHostnameExclusionsRegex, regex pattern [$pattern] failed validation with the following result --> $($_.Exception.InnerException.Message)"
+            throw
+        }
+    }
+
     Write-Log -Type INF -Message "Script variables have been successfully validated"
 }
 
@@ -1892,18 +1949,21 @@ Function Get-OnBoardingCandidates {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     foreach ($comp in $EPMEndpoints) {
         [List[PSCustomObject]]$potentialOnboardCandidates = @()
-        $potentialOnboardCandidates = $PAMAccountsIndex[$comp.ComputerName]
+        $matchingKeys = $PAMAccountsIndex.Keys -match $("^$([regex]::Escape($comp.ComputerName))$")
+        foreach ($key in $matchingKeys) {
+            $potentialOnboardCandidates.Add($PAMAccountsIndex[$key])
+        }
         $usernameList = @()
         switch ($comp.Platform) {
-            "Windows" { $usernameList = $EndpointUserNamesWin}
-            "MacOS" { $usernameList = $EndpointUserNamesMac}
-            "Linux" { $usernameList = $EndpointUserNamesLinux}
+            "Windows" { $usernameList = $EndpointUserNamesWin; Break}
+            "MacOS" { $usernameList = $EndpointUserNamesMac; Break}
+            "Linux" { $usernameList = $EndpointUserNamesLinux; Break}
         }
         foreach ($username in $usernameList) {
             if ($potentialOnboardCandidates) {
                 $userNameExistsInPAM = $false
                 foreach ($account in $potentialOnboardCandidates) {
-                    if ($account.userName -match "^$username$") {
+                    if ($account.userName -match "^$([regex]::escape($username))$") {
                         $userNameExistsInPAM = $true
                         break
                     }
@@ -1955,6 +2015,7 @@ Function Get-OffBoardingCandidates {
         The following script-level variables are used:
         - $EndpointUserNamesWin
         - $EndpointUserNamesMac
+        - $EndpointHostnameExclusionsRegex
         
         Author: Craig Geneske
     #>
@@ -1990,31 +2051,62 @@ Function Get-OffBoardingCandidates {
         }
     }
 
+    #Create Ignore List Index
+    $IgnoreListIndex = @{}
+    foreach ($comp in $IgnoreList) {
+        $key = $comp.("ComputerName")
+        $data = $IgnoreListIndex[$key]
+        if ($data -is [Collections.ArrayList]) {
+            $data.add($comp) > $null
+        }
+        elseif ($data) {
+            $IgnoreListIndex[$key] = [Collections.ArrayList]@($data, $comp)
+        }
+        else {
+            $IgnoreListIndex[$key] = $comp
+        }
+    }
+
     foreach ($account in $PAMAccounts) {
-        foreach ($ignoredComp in $IgnoreList) {
-            if ($ignoredComp.ComputerName -match "^$($account.Instance.Address).*$") {
-                continue
-            }
-        }
-        if (!$EPMComputersIndex[$account.Instance.Address]) {
-            $usernameList = @()
-            switch ($account.PlatformBaseID) {
-                "WinLooselyDevice" { $usernameList = $EndpointUserNamesWin; $compPlatform = "Windows" }
-                "Unix" { $usernameList = $EndpointUserNamesMac; $compPlatform = "MacOS" }
-                "UnixLooselyDevice" { $usernameList = $EndpointUserNamesLinux; $compPlatform = "Linux" }
-            }
-            foreach ($username in $usernameList) {
-                if ($account.Instance.UserName -match "^$username$") {
-                    $account.Instance | Add-Member -NotePropertyName CompPlatform -NotePropertyValue $compPlatform
-                    $offboardCandidates.Add($account.Instance)
-                }
-            }
-        }
-        $processedCounter++
         if ($timer.elapsed.totalseconds -ge $StatusPingInterval) {
             Write-Log -Type INF -Message "---> Status Ping: [$processedCounter] of [$($PAMAccounts.Count)] ($([math]::Round($processedCounter / $PAMAccounts.Count * 100))%) PAM accounts processed"
             $timer.Restart()
         }
+        if (!($EPMComputersIndex.Keys -match $("^$([regex]::Escape($account.Instance.Address))$"))) {
+            $usernameList = @()
+            switch ($account.PlatformBaseID) {
+                "WinLooselyDevice" { $usernameList = $EndpointUserNamesWin; $compPlatform = "Windows"; Break }
+                "Unix" { $usernameList = $EndpointUserNamesMac; $compPlatform = "MacOS"; Break }
+                "UnixLooselyDevice" { $usernameList = $EndpointUserNamesLinux; $compPlatform = "Linux"; Break }
+            }
+            if ($IgnoreListIndex.Keys -match $("^$([regex]::Escape($account.Instance.Address))$")) {
+                $processedCounter++
+                Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Ignored,Reported,There is a matching computer in EPM that should be ignored due to the current run configuration" -ErrorAction SilentlyContinue *> $null
+                continue
+            }
+            if ($EndpointHostnameExclusionsRegex) {
+                foreach ($pattern in $EndpointHostnameExclusionsRegex) {
+                    $matchFound = $false
+                    if ($account.Instance.Address -match $pattern) {
+                        $matchFound = $true
+                        Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Ignored,Reported,The account's address in PAM matches a hostname exclusion pattern" -ErrorAction SilentlyContinue *> $null
+                        break
+                    }
+                }
+                if ($matchFound) {
+                    $processedCounter++
+                    continue
+                }
+            }
+            foreach ($username in $usernameList) {
+                if ($account.Instance.UserName -match "^$([regex]::Escape($username))$") {
+                    $account.Instance | Add-Member -NotePropertyName CompPlatform -NotePropertyValue $compPlatform
+                    $offboardCandidates.Add($account.Instance)
+                    Break
+                }
+            }
+        }
+        $processedCounter++
     }
     Write-Log -Type INF -Message "[$($offboardCandidates.Count)] account(s) identified for off-boarding"
     return $offboardCandidates
@@ -2163,6 +2255,7 @@ Function Send-PAMLifecycleEmail {
         - $SendSummaryEmail
         - $SafetyTriggered
         - $ReportOnlyMode
+        - $EmailFullReportAndLog
         - $EmailWithSsl
         - $SMTPRelayHostname
         - $EmailFromAddress
@@ -2196,8 +2289,9 @@ Execution Start - VarExecutionStart
 Execution End   - VarExecutionEnded
 Elapsed [HH:MM:SS] - VarExecutionTime
 
-Total # On-BoardedVarIsPlanned: VarOnBoarded
-Total # Off-BoardedVarIsPlanned: VarOffBoarded VarOnboardingFailures VarOffboardingFailures VarAnyFailures VarReportExists VarReviewLog
+Total # On-BoardedVarIsPlanned: VarOnBoarded VarOnboardingFailures
+Total # Off-BoardedVarIsPlanned: VarOffBoarded VarOffboardingFailures
+Total # IgnoredVarIsPlanned: VarIgnored VarAnyFailures VarReportExists VarReviewLog VarAttachments
 
 Regards,
 Your Friendly Neighborhood CyberArk Automation
@@ -2219,10 +2313,17 @@ Your Friendly Neighborhood CyberArk Automation
         $offBoardSuccess = 0
         $onBoardFailures = 0
         $offBoardFailures = 0
+        $ignored = 0
         if (Test-Path -Path $ReportFilePath) {
-            $body = $body.Replace("VarReportExists", "`n`nFor more information on the lifecycle activitiesVarWouldHave conducted in PAM, please see the full report on your utility host at `"$ReportFilePath`"`n")
+            if (!$EmailFullReportAndLog) {
+                $body = $body.Replace("VarReportExists", "`n`nFor more information on the lifecycle activitiesVarWouldHave conducted in PAM, please see the full report on your utility host at `"$ReportFilePath`"`n")
+            }            
             $results = Import-Csv -Path $ReportFilePath
             foreach ($result in $results) {
+                if ($result.Action -match "Ignored") {
+                    $ignored++
+                    continue
+                }
                 if ($result.Action -match "Onboarding") {
                     if ($result.Status -match "Reported|Success") {
                         $onBoardSuccess++
@@ -2245,26 +2346,39 @@ Your Friendly Neighborhood CyberArk Automation
                 }
             }
         }
+
+        $body = $body.Replace("VarReportExists", "")
+
+        if ($EmailFullReportAndLog) {
+            $body = $body.Replace("VarAttachments", "`n`nThe log and report (when applicable) are attached for your convenience.")
+        }
         else {
-            $body = $body.Replace("VarReportExists", "")
+            $body = $body.Replace("VarAttachments", "")
         }
 
         $subject = $subject.Replace("VarSubjOnBoarded", $onBoardSuccess)
         $subject = $subject.Replace("VarSubjOffBoarded", $offBoardSuccess)
         $body = $body.Replace("VarOnBoarded", $onBoardSuccess)
         $body = $body.Replace("VarOffBoarded", $offBoardSuccess)
+        $body = $body.Replace("VarIgnored", $ignored)
 
         if ($onBoardFailures) {
-            $body = $body.Replace("VarOnboardingFailures", "`nTotal # of On-Boarding Failures: $onBoardFailures")
+            $body = $body.Replace("VarOnboardingFailures", "`nTotal # On-Boarding Failures: $onBoardFailures")
             $subject = $subject.Replace("VarSubjStatus", "FAILURE")
         }
         if ($offBoardFailures) {
-            $body = $body.Replace("VarOffboardingFailures", "`nTotal # of Off-Boarding Failures: $offBoardFailures")
+            $body = $body.Replace("VarOffboardingFailures", "`nTotal # Off-Boarding Failures: $offBoardFailures")
             $subject = $subject.Replace("VarSubjStatus", "FAILURE")
         }
         if ($SafetyTriggered) {
             $body = $body.Replace("VarAnyFailures", "`n`nThe safety mechanism has been triggered due to excessive changes in PAM or EPM.")
-            $body = $body.Replace("VarReviewLog", "`n`nPlease review the log file on your utility host at `"$LogFilePath`" for more details.")
+            if (!$EmailFullReportAndLog){
+                $body = $body.Replace("VarReviewLog", "`n`nPlease review the log file on your utility host at `"$LogFilePath`" for more details.")
+            }
+            else {
+                $body = $body.Replace("VarReviewLog", "")
+            }
+
             $subject = $subject.Replace("VarSubjStatus", "FAILURE")
             $body = $body.Replace("VarCompletionStatus", "with errors.")
         }
@@ -2281,7 +2395,13 @@ Your Friendly Neighborhood CyberArk Automation
         if ($Error.Count) {
             $subject = $subject.Replace("VarSubjStatus", "FAILURE")
             $body = $body.Replace("VarCompletionStatus", "with errors.")
-            $body = $body.Replace("VarReviewLog", "`n`nPlease review the log file on your utility host at `"$LogFilePath`" for more details.")
+            if (!$EmailFullReportAndLog) {
+                $body = $body.Replace("VarReviewLog", "`n`nPlease review the log file on your utility host at `"$LogFilePath`" for more details.")
+            }
+            else {
+                $body = $body.Replace("VarReviewLog", "")
+            }
+
         }
         else {
             $subject = $subject.Replace("VarSubjStatus", "SUCCESS")
@@ -2304,9 +2424,28 @@ Your Friendly Neighborhood CyberArk Automation
     }
     catch {
         Write-Log -Type WRN -Message "Failed to prepare E-Mail subject and body --> $($_.Exception.Message)"
+        return
     }
     try {
-        Send-MailMessage -Subject $subject -Body $body -To $EmailToAddress -From $EmailFromAddress -SmtpServer $SMTPRelayHostname -usessl:$EmailWithSsl -ErrorAction Stop *> $null
+        $params = @{
+            Subject = $subject
+            Body = $body
+            To = $EmailToAddress
+            From = $EmailFromAddress
+            SmtpServer = $SMTPRelayHostname
+            usessl = $EmailWithSsl
+            ErrorAction = "Stop"
+        }
+
+        if ($EmailFullReportAndLog) {
+            $attachments = @($LogFilePath)
+            if (Test-Path -Path $ReportFilePath) {
+                $attachments += $ReportFilePath
+            }
+            $params.Add("Attachments", $attachments)
+        }
+
+        Send-MailMessage @params *> $null
         Write-Log -Type INF -Message "Summary E-Mail has been sent successfully"
     }
     catch {
@@ -2330,51 +2469,51 @@ catch {
     exit 1
 }
 
-#Create Report File
-try{
-    if ($ReportOnlyMode) {
-        Set-Variable -Name ReportFilePath -Scope Script -Value ($ReportFilePath.Substring(0,$ReportFilePath.Length - 4) + "_RO.csv")
-    }
-    New-Item -Path $ReportFilePath -Force -ErrorAction Stop *> $null
-    Add-Content -Path $ReportFilePath -Value "Username,Address,Platform,Action,Status,Reason" -ErrorAction Stop
-}
-catch {
-    Write-Log -Type ERR -Message "Unable to create report file at [$ReportFilePath], aborting script --> $($_.Exception.Message)"
-    exit 1
-}
-
-#Create DAT File
-if (!(Test-Path -Path $DatFilePath)) {
-    try {
-        New-Item -Path $DatFilePath -Force -ErrorAction Stop *> $null
-        $datFileSeed = [PSCustomObject]@{
-            EPMComputers = -1
-            PAMAccounts = -1
-        } | ConvertTo-Json
-        Add-Content -Path $DatFilePath -Value $datFileSeed
-    }
-    catch {
-        Write-Host "Unable to create DAT file at [$DatFilePath], aborting script --> $($_.Exception.Message)"
-        exit 1
-    }
-}
-
 #Print Log/Console Header
 Write-Log -Header
 
-#Set Certificate Validation Preference
-if ($IgnoreSSLCertErrors) {
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = [CACertValidation]::GetDelegate()
-    Write-Log -Type WRN -Message "You have disabled SSL Certificate validation, this setting is NOT recommended!"
-}
-else {
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
-}
-
-#Enforce TLS 1.2
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-
 try {
+    #Create Report File
+    try{
+        if ($ReportOnlyMode) {
+            Set-Variable -Name ReportFilePath -Scope Script -Value ($ReportFilePath.Substring(0,$ReportFilePath.Length - 4) + "_RO.csv")
+        }
+        New-Item -Path $ReportFilePath -Force -ErrorAction Stop *> $null
+        Add-Content -Path $ReportFilePath -Value "Username,Address,Platform,Action,Status,Reason" -ErrorAction Stop
+    }
+    catch {
+        Write-Log -Type ERR -Message "Unable to create report file at [$ReportFilePath], aborting script --> $($_.Exception.Message)"
+        throw
+    }
+
+    #Create DAT File
+    if (!(Test-Path -Path $DatFilePath)) {
+        try {
+            New-Item -Path $DatFilePath -Force -ErrorAction Stop *> $null
+            $datFileSeed = [PSCustomObject]@{
+                EPMComputers = -1
+                PAMAccounts = -1
+            } | ConvertTo-Json
+            Add-Content -Path $DatFilePath -Value $datFileSeed
+        }
+        catch {
+            Write-Log -Type ERR -Message "Unable to create DAT file at [$DatFilePath], aborting script --> $($_.Exception.Message)"
+            throw
+        }
+    }
+
+    #Set Certificate Validation Preference
+    if ($IgnoreSSLCertErrors) {
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = [CACertValidation]::GetDelegate()
+        Write-Log -Type WRN -Message "You have disabled SSL Certificate validation, this setting is NOT recommended!"
+    }
+    else {
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+    }
+
+    #Enforce TLS 1.2
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
     #Check if Script is Latest Available
     $Version = ""
     if ($VersionCheck) {
@@ -2435,7 +2574,7 @@ try {
     }
 }
 catch {
-    #Nothing to do but maintaining catch block to suppress error output as this is processed and formatted further down in the call stack
+    #Nothing to do but maintaining catch block to suppress error output as this is processed and formatted lower in the call stack
     #Write-Log -Type ERR -Message $_.Exception.Message
 } 
 finally {
@@ -2451,7 +2590,6 @@ finally {
 
     if ($PAMSessionToken) {
         Invoke-APILogoff
-        Set-Variable -Scope Script -Name PAMSessionToken -Value $null
     }
 
     $EPMSessionInfo = $null

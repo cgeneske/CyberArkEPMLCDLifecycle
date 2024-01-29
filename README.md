@@ -223,6 +223,8 @@ There are a series of script variables that must be set off default, to values t
     - When set to `$true` will send an execution summary E-Mail to the recipient configured in `$EmailToAddress`.
 - `$EmailWithSsl`
     - When set to `$true` will send the execution summary E-Mail using SSL/TLS.
+- `$EmailFullReportAndLog`
+    - When set to `$true` will send the complete log and report file as attachments with the execution summary E-Mail.
 - `$VersionCheck`
     - When set to `$true` will compare to the latest script available on GitHub and log/notify if a new version is available.
 - `$ValidateDomainNamesDNS`
@@ -266,18 +268,19 @@ There are a series of script variables that must be set off default, to values t
                             
         Enable Domain Name resolution via DNS and consider EPM endpoints WILL have membership in one of several possible domain names (will skip candidacy if unable to resolve in DNS):
         ```powershell
-        $EndpointDomainNames = @("cybr.com", "childA.cybr.com", "childB.cybr.com")
+        $EndpointDomainNames = "cybr.com","childA.cybr.com","childB.cybr.com"
         $ValidateDomainNamesDNS = $true
         $SkipIfNotInDNS = $true
         ```
 
         Enable Domain Name resolution via DNS and consider EPM endpoints MAY have membership in one of several possible domain names or are otherwise domain-less (Will assume no domain name for candidacy, if unable to resolve in DNS):
         ```powershell
-        $EndpointDomainNames = @("cybr.com", "childA.cybr.com", "childB.cybr.com")
+        $EndpointDomainNames = "cybr.com","childA.cybr.com","childB.cybr.com"
         $ValidateDomainNamesDNS = $true
         $SkipIfNotInDNS = $false
         ```
-
+- `$EndpointHostnameExclusionsRegex`
+    - Regular expression for determining which EPM endpoints (Computer Name) or PAM accounts (Address) should be excluded from lifecycle management activities.  Supports a list of regex strings to help simplify more complex needs at scale.  If left as an empty string (default), there will be no exclusions made by hostname.
 - `$OnboardingPlatformIdWin`
     - Platform ID for the platform to use when on-boarding Windows LCD accounts.
 - `$OnboardingPlatformIdMac`
@@ -374,9 +377,9 @@ There are a series of script variables that must be set off default, to values t
 # General Usage and Advanced Techniques
 
 ## Safety Mechanism
-By design, this utility has the potential to make sweeping changes to the PAM account landscape.  Ideally, we desire to accommodate the situations that are reasonably expected and to likewise prevent those that might not be.  An example of an expected situation would be during the initial setup of this very utility.  An example of an unexpected situation might be the sudden change in privileges of the API user(s), which could result in a mass on-boarding of duplicates or mass off-boarding of accounts, brought by the API user's lack of proper visibility into its respective API.  To account for the unexpected, a safety mechanism has been provided.
+By design, this utility has the potential to make sweeping changes to the PAM account landscape.  Ideally, we desire to accommodate the situations that are reasonably expected and to likewise prevent those that might not be.  An example of an expected situation would be during the initial setup of this very utility.  An example of an unexpected situation might be the sudden change in privileges of the API user(s), which could result in a mass on-boarding of duplicates or mass off-boarding of accounts, brought by the API user's lack of proper authorizations to its respective API.  To account for the unexpected, a safety mechanism has been provided.
 
-The quantity of PAM Accounts (LCD) and EPM Computers as obtained from the previous successful execution, are maintained in a DAT file that is co-located with the script `CyberArk_EPMLCD_Lifecycle.dat`.  When this baseline is compared against values obtained during the current execution, if there is a change delta that's greater than the defined threshold, the script will either warn you (when in report-only mode) or abort execution entirely to prevent sweeping changes in PAM.
+The quantity of PAM Accounts (LCD) and EPM Computers as obtained from the previous successful execution, are maintained in a DAT file that is co-located with the script `CyberArk_EPMLCD_Lifecycle.dat`.  When this baseline is compared against values obtained during the current execution, if the deviation is greater than the defined threshold, the script will either warn you (when in report-only mode) or abort execution entirely (when in production mode) to prevent sweeping changes in PAM.
 
 By default, the thresholds for PAM Accounts and EPM Computers are set to **<u>10%</u>** (`0.10`), but these values can be adjusted by changing the definition of the following Script Variables:
 
@@ -441,9 +444,19 @@ The execution summary E-Mail will contain basic details about the execution in b
 - Execution start datetime, end datetime, and run duration (in HH:MM:SS)
 - Quantity of accounts that were successfully (or would be) on/off-boarded
 - Quantity of accounts that failed to on/off-board (if any)
+- Quantity of endpoints and/or accounts that were ignored based on run configuration or hostname exclusions
 - Whether or not the safety mechanism was triggered
 
-Further detail regarding any specific errors or failures will usually be obtainable from the respective execution's log and report files which remain on the utility's host, and will be path-referenced in the execution summary E-Mail when such a failure situation occurs.
+Further detail regarding any specific errors or failures will usually be obtainable from the respective execution's log and report files which remain on the utility's host, and will be path-referenced in the execution summary E-Mail when such a failure situation occurs.  Optionally, you can also have the log and report file attached to the E-Mail directly by setting:
+
+```powershell
+$EmailFullReportAndLog = $true
+```
+This option is set to `$false` (disabled) by default, as the report and log may contain data considered to be sensitive, and not all E-Mail integrations may implement commensurate security.
+
+Example execution summary E-Mail with attachments:
+
+![Example Email Summary](images/emailsummaryexample.PNG)
 
 >**NOTE:** The technique leverages PowerShell's native `Send-MailMessage` cmdlet which has been designated as deprecated by Microsoft, and without a suitable replacement being provided natively in .NET.  Even so, this cmdlet should remain adequate for anonymous transmission via internal mail gateways, which should naturally align to its intended use.
 
@@ -514,54 +527,6 @@ The FQDN for Windows endpoints is a required data point for PAM on-boarding and 
 If you would like to see the EPM API provide the FQDN (or DNS Suffix) for endpoints, please show your support by adding your vote to [this Enhancement Request (ER)](https://cyberark.my.site.com/s/article/EPM-API-to-provide-FQDN-of-computer-endpoints-c6f9-c8f)
 
 >**NOTE:** Up-voting ERs requires a CyberArk Technical Community Login
-
-# Interactive Output Example
-
-```powershell
-CyberArk_EPMLCD_Lifecycle.ps1
-```
-The example scenario below is configured with the following environment-specific considerations and preferences:
-
-## Example Setup and Scenario (Script Variable Preparation)
-
-- Report-Only Mode is Enabled, so **<u>no actual on/off-boarding</u>** will take place during this execution
-- An execution summary e-mail will be sent
-- We will use all sets in EPM
-- The EPM Region/Datacenter is US
-- All Safes that the PAM API user has access to, will be searched for existing LCD accounts
-- Named accounts that will exist on every Windows endpoint are `Administrator` and `X_Admin`
-- The named account that will exist on every Mac endpoint is `mac_admin`
-- The named account that will exist on every Linux endpoint is `root`
-- The default Platforms will be used for on-boarding
-- The Safe pool in CyberArk PAM that will be used for on-boarding contains safes named `EPMLCDSTG01`, `EPMLCDSTG02`, and `EPMLCDSTG03`
-- The PAM Self-Hosted PVWA hostname for this environment is `pam.cybr.com` (i.e. https://`pam.cybr.com`/PasswordVault)
-- We will not use DNS lookup to determine Windows endpoint FQDN.
-    - We will assume a DNS suffix of `cybr.com` for all Windows endpoints.
-- Use CyberArk PAM (CCP) to retrieve the PAM and EPM API credentials
-     - The CCP's hostname is `ccp.cybr.com` (i.e. https://`ccp.cybr.com`/AIMWebService/...)
-- Use OS User Authentication for CCP against a unique CCP service root of `AIMWebServiceIWA`
-
-![Example Variables](images/variablesexample.PNG)
-
-## Example Outputs and Result
-
-Four (4) on-boarding candidates and one (1) off-boarding candidate were identified.  This was determined in the following way:
-
-- Three (3) EPM Computers [Windows Platform] were found across three (3) EPM Sets; hostnames of `CLIENT02`, `DBSVR` and `WINTGT`
-- All EPM Computers were DNS suffix appended to FQDN `CLIENT02.cybr.com`, `DBSVR.cybr.com`, and `WINTGT.cybr.com`
-- Four (4) LCD-based accounts out of eighty-six (86) total accounts were found as existing in PAM - these are:
-    - `Administrator` for `CLIENT02.cybr.com`
-    - `Administrator` for `CLIENT03.cybr.com` 
-    - `Administrator` for `DBSVR.cybr.com`
-    - `AppAdmin1` for `CLIENT03.cybr.com`
-- `X_Admin` is missing in PAM for all three EPM computers, and should be on-boarded
-- `Administrator` for `WINTGT.cybr.com` is also missing in PAM, and should be on-boarded
-- `CLIENT03` does not exist in EPM and so its managed account entry for `Administrator` should be off-boarded from PAM
-- `AppAdmin1` is not a username listed in `$EndpointUserNamesWin`.  It's expected that this account was on-boarded outside of this utility for a specific application role, and is out of scope for this utility.  It will **not** be off-boarded despite there being no corresponding computer object for it in EPM
-
-![Example Output](images/outputexample.png)
-
-![Example Email Summary](images/emailsummaryexample.PNG)
 
 # Support
 
