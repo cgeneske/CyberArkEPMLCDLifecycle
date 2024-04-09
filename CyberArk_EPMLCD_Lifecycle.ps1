@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.4.0
+.VERSION 1.4.1
 
 .GUID cf187d04-2d7d-48aa-94cf-80d4f33f6a68
 
@@ -244,6 +244,8 @@ VERSION HISTORY:
 1.3.0   11/30/2023  - Added E-Mail notification, PSScriptInfo version check, Linux LCD, and Privilege Cloud Shared Services support
 1.4.0   1/29/2024   - Added ability to exclude hostname patterns from management scope (regex), and optional E-Mail attachments for 
                       the log and report files.
+1.4.1   4/9/2024    - Fixed a bug that caused an unexpected interrupt if $SafeSearchList was defined.  Fixed a bug where duplicate
+                      entries of the same computer in EPM (reimaging scenarios) would result in duplicate on-boarding actions in PAM.
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -1323,7 +1325,7 @@ Function Get-EPMComputers {
     }
 
     [List[PSCustomObject]]$qualifiedComps = @()
-    Write-Log -Type INF -Message "Qualifying EPM computers with domain names provided (this may take a while)..."
+    Write-Log -Type INF -Message "Qualifying EPM computers with domain names provided and deduplicating the results (this may take a while)..."
     foreach($comp in $EPMComputerList) {
         $finalSuffix = ""
         if ($ValidateDomainNamesDNS -and $comp.Platform -eq "Windows") {
@@ -1391,7 +1393,8 @@ Function Get-EPMComputers {
         })
         
     }
-    Write-Log -Type INF -Message "EPM computer qualification complete"
+    $qualifiedComps = $qualifiedComps | Sort-Object -Property ComputerName | Get-Unique -AsString
+    Write-Log -Type INF -Message "EPM computer qualification and deduplication complete"
     Compare-ChangeFactorAndUpdate -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value $qualifiedComps.Count
     return $qualifiedComps, $ignoreList
 }
@@ -1471,7 +1474,7 @@ Function Add-PAMAccountsBulk {
             safeName = $safename
             platformId = $platformId
         })
-        #If both Windows and MacOS safe pools contain the same Safe, we need to increment account counter in both to keep on-boarding distribution even
+        #If Windows, MacOS, and/or Linux safe pools contain the same Safe, we need to increment the account counter in all to keep on-boarding distribution even
         foreach ($safeGroup in $SafePool.GetEnumerator()) {
             if ($safeGroup.Value[$safeName] -ge 0) {
                 $safeGroup.Value[$safeName]++
@@ -2526,16 +2529,8 @@ try {
 
     $LCDPlatforms = Get-PAMActiveLCDPlatforms
 
-    $getAccountsParams = @{
-        LCDPlatformList = $LCDPlatforms
-    }
-
-    if ($SafeSearchList) {
-        $getAccountsParams.Add("SafeSearchList", $SafeSearchList)
-    }
-
     #Get all existing LCD Accounts in PAM
-    [List[PSCustomObject]]$PAMAccounts, [hashtable]$SafePool = Get-PAMLCDAccounts @getAccountsParams
+    [List[PSCustomObject]]$PAMAccounts, [hashtable]$SafePool = Get-PAMLCDAccounts -LCDPlatformList $LCDPlatforms
 
     #Get all EPM Computers
     $EPMSessionInfo = Invoke-APIAuthentication -App EPM
