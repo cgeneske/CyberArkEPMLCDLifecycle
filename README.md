@@ -4,23 +4,24 @@ Organizations seeking to reduce and eliminate privilege escalation abuse, creden
 
 The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
-The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, automatically determining and executing the needed on-boarding and off-boarding actions in PAM.  As new agents come online in EPM, one or more standardized local accounts will be on-boarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their local accounts will be off-boarded from PAM.
+The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, automatically determining and executing the needed onboarding and offboarding actions in PAM.  As new agents come online in EPM, one or more standardized local accounts will be onboarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their local accounts will be offboarded from PAM.
 
-**This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting on-boarding activities in CyberArk PAM!**
+**This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting onboarding activities in CyberArk PAM!**
 
 >**Note**: This solution is provided as-is, it is not supported by CyberArk nor an official CyberArk solution
 
 ## Features
 
-- Complete lifecycle management (on/off-boarding) of standardized local accounts in PAM that are based on LCD
+- Complete lifecycle management (on/offboarding) of standardized local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
-- Supports separate on-boarding Safes for staging Windows, MacOS and Linux accounts
-- Supports on-boarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
+- Supports separate onboarding Safes for staging Windows, MacOS and Linux accounts
+- Supports onboarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
+- Supports an offboarding delay to serve as a buffer against rapid turnover in the EPM database
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
-- Non-invasive Report-Only mode, useful for determining candidates for on/off-boarding, prior to go-live
+- Non-invasive Report-Only mode, useful for determining candidates for on/offboarding, prior to go-live
 - Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
 
 # Environment Setup
@@ -34,7 +35,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - PAM and EPM API credentials added to CyberArk PAM (CCP) or Windows Credential Manager
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and on-boarding local accounts to be managed via LCD.  For more information on this capability, see CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and onboarding local accounts to be managed via LCD.  For more information on this capability, see CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
 
 ## Deployment Overview
 1. Prepare a purpose-dedicated CyberArk PAM API User - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
@@ -45,7 +46,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
     - For CyberArk PAM (CCP), see [CyberArk Central Credential Provider (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations)
     - For Windows Credential Manager, see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)
 
-4. Prepare the respective LCD Platforms (Windows, MacOS, and/or Linux) that will be used for on-boarding in CyberArk PAM
+4. Prepare the respective LCD Platforms (Windows, MacOS, and/or Linux) that will be used for onboarding in CyberArk PAM
     - The LCD Platform for `Windows Loosely Device` is available out of the box
     - The LCD Platform for `MAC Loosely Device` can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
     - The LCD Platform for `Linux Looesly Device` can be downloaded from CyberArk Marketplace [here](https://cyberark.my.site.com/mplace/s/#a35Ht000001pcrlIAA-a39Ht000003ztibIAA)
@@ -58,7 +59,7 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 5. Customize the script for your environment and desired outcome - See [Assigning Script Variables](#assigning-script-variables) 
 
 6. Run the script!
-    >**NOTE:** The script default is set to `$ReportOnlyMode = $true` which will result in no actions taken against CyberArk PAM.  It is **highly recommended** to maintain this run mode for the initial execution, and following any change to script variables, in order to review on-boarding and off-boarding candidates for accuracy.  Once satisfied with these results, switch to `$ReportOnlyMode = $false` to commit the respective lifecycle activities against CyberArk PAM.
+    >**NOTE:** The script default is set to `$ReportOnlyMode = $true` which will result in no actions taken against CyberArk PAM.  It is **highly recommended** to maintain this run mode for the initial execution, and following any change to script variables, in order to review onboarding and offboarding candidates for accuracy.  Once satisfied with these results, switch to `$ReportOnlyMode = $false` to commit the respective lifecycle activities against CyberArk PAM.
 
 7. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
 
@@ -73,14 +74,14 @@ For complete instructions on how to create this user, see official CyberArk docu
 - [Add a User - PAM Self-Hosted (13.2 and above)](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Users-groups-add-users-v10.htm?tocpath=Administrator%7CUser%20Management%7CManage%20users%20and%20groups%7CUsing%20the%20version%2010%20interface%7C_____1)
 - [Add a User - PAM Self-Hosted (13.0 and below)](https://docs.cyberark.com/PAS/13.0/en/Content/PASIMP/Managing-Users.htm?tocpath=Administrator%7CUser%20Management%7C_____4#AddausertoaVault)
 
-For Safes that will be considered for existing accounts inventory and off-boarding activity, the following privileges are required:
+For Safes that will be considered for existing accounts inventory and offboarding activity, the following privileges are required:
 
 - Access
     - [x] List Accounts
 - Account Management
     - [x] Delete Accounts
 
-For Safes that will be considered for on-boarding activity, these being the static Windows, Mac, and Linux safes named in the `$OnboardingSafesWin`, `$OnboardingSafesMac`, and `$OnboardingSafesLinux` Script Variables (See the [Assigning Script Variables](#assigning-script-variables) section below for more info), the following privileges are required:
+For Safes that will be considered for onboarding activity, these being the static Windows, Mac, and Linux safes named in the `$OnboardingSafesWin`, `$OnboardingSafesMac`, and `$OnboardingSafesLinux` Script Variables (See the [Assigning Script Variables](#assigning-script-variables) section below for more info), the following privileges are required:
 
 - Access
     - [x] List Accounts
@@ -92,7 +93,7 @@ For Safes that will be considered for on-boarding activity, these being the stat
     - [x] Delete Accounts**
 
 >`* ` - Specifically required for un-delete scenarios<br/>
->`**` - Required if this safe should also be considered for off-boarding
+>`**` - Required if this safe should also be considered for offboarding
 
 For complete instructions on how to permission a Safe, see official CyberArk documentation links below:
 - [Add Safe Members - Privilege Cloud Shared Services (i.e. subdomain.cyberark.cloud)](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm#AddSafemembers)
@@ -206,11 +207,11 @@ There are a series of script variables that must be set off default, to values t
 
 ### Run Mode Options
 - `$ReportOnlyMode`
-    - When set to `$true` will report in console, log, and CSV, which accounts would be on-boarded to, and/or off-boarded from, PAM. **This is a read-only run mode!**
+    - When set to `$true` will report in console, log, and CSV, which accounts would be onboarded to, and/or offboarded from, PAM. **This is a read-only run mode!**
 - `$SkipOnBoarding`
-    - When set to `$true` will skip the on-boarding logic.
+    - When set to `$true` will skip the onboarding logic.
 - `$SkipOffBoarding`
-    - When set to `$true` will skip the off-boarding logic.
+    - When set to `$true` will skip the offboarding logic.
 - `$SkipWindows`
     - When set to `$true` will skip lifecycle management for Windows-based accounts and endpoints.
 - `$SkipMac`
@@ -228,13 +229,15 @@ There are a series of script variables that must be set off default, to values t
 - `$VersionCheck`
     - When set to `$true` will compare to the latest script available on GitHub and log/notify if a new version is available.
 - `$ValidateDomainNamesDNS`
-    - When set to `$true` will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for on-boarding accuracy.
+    - When set to `$true` will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for onboarding accuracy.
     Used with `$EndpointDomainNames` (See entry above for more details).
     Used with `$SkipIfNotInDNS` (See entry below for more details).
 - `$SkipIfNotInDNS`
     - When set to `$true` will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to `$false`, endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.  Only used when `$ValidateDomainNamesDNS` is set to `$true`, otherwise this can be ignored.
 - `$IgnoreSSLCertErrors`
     - When set to `$true` will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection. It is recommended to leave this value as `$false` to ensure certificates are verified!
+- `$OffboardingDelayDays`
+    - Number of days from the account's last modified date in PAM, to delay offboarding, should no corresponding endpoint exist in the EPM database.  The default value is 0 (no delay). 
 
 ### General Environment Details
 - `$EndpointUserNamesWin`
@@ -243,7 +246,7 @@ There are a series of script variables that must be set off default, to values t
     - List of one or more local account usernames to lifecycle manage for all Mac-based EPM endpoints.
 - `$EndpointUserNamesLinux`
     - List of one or more local account usernames to lifecycle manage for all Linux-based EPM endpoints.<br/><br/>
-    >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints!  An account will be on-boarded to PAM for each username provided in this list, and for every Windows/MacOS/Linux endpoint, regardless if it actually exists on a given endpoint or not.
+    >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints!  An account will be onboarded to PAM for each username provided in this list, and for every Windows/MacOS/Linux endpoint, regardless if it actually exists on a given endpoint or not.
 - `$EndpointDomainNames`
     - List of one or more DNS domain names that EPM endpoints have membership to. Applicable only for Windows endpoints as Mac/Linux endpoints are assumed to have an incorporated domain/DNS suffix (if any). Used with `$ValidateDomainNamesDNS` and `$SkipIfNotInDNS` -- See below for complete info on these variables.
         - If `$ValidateDomainNamesDNS` is set to `$false`, `$EndpointDomainNames` must be set to a single domain name or empty (i.e. "").  
@@ -282,19 +285,19 @@ There are a series of script variables that must be set off default, to values t
 - `$EndpointHostnameExclusionsRegex`
     - Regular expression for determining which EPM endpoints (Computer Name) or PAM accounts (Address) should be excluded from lifecycle management activities.  Supports a list of regex strings to help simplify more complex needs at scale.  If left as an empty string (default), there will be no exclusions made by hostname.
 - `$OnboardingPlatformIdWin`
-    - Platform ID for the platform to use when on-boarding Windows LCD accounts.
+    - Platform ID for the platform to use when onboarding Windows LCD accounts.
 - `$OnboardingPlatformIdMac`
-    - Platform ID for the platform to use when on-boarding MacOS LCD accounts.
+    - Platform ID for the platform to use when onboarding MacOS LCD accounts.
 - `$OnboardingPlatformIdLinux`
-    - Platform ID for the platform to use when on-boarding Linux LCD accounts.
+    - Platform ID for the platform to use when onboarding Linux LCD accounts.
 - `$OnboardingSafesWin`
-    - A list of one or more Safes that Windows LCD accounts will be on-boarded into.
+    - A list of one or more Safes that Windows LCD accounts will be onboarded into.
 - `$OnboardingSafesMac`
-    - A list of one or more Safes that MacOS LCD accounts will be on-boarded into.
+    - A list of one or more Safes that MacOS LCD accounts will be onboarded into.
 - `$OnboardingSafesLinux`
-    - A list of one or more Safes that Linux LCD accounts will be on-boarded into.
+    - A list of one or more Safes that Linux LCD accounts will be onboarded into.
 - `$LCDPlatformSearchRegex`
-    - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making off-boarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
+    - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making offboarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
 - `$SafeSearchList`
     - List of CyberArk Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.  May be left empty (i.e. "") to search all safes. <br/><br/>
     
@@ -377,7 +380,7 @@ There are a series of script variables that must be set off default, to values t
 # General Usage and Advanced Techniques
 
 ## Safety Mechanism
-By design, this utility has the potential to make sweeping changes to the PAM account landscape.  Ideally, we desire to accommodate the situations that are reasonably expected and to likewise prevent those that might not be.  An example of an expected situation would be during the initial setup of this very utility.  An example of an unexpected situation might be the sudden change in privileges of the API user(s), which could result in a mass on-boarding of duplicates or mass off-boarding of accounts, brought by the API user's lack of proper authorizations to its respective API.  To account for the unexpected, a safety mechanism has been provided.
+By design, this utility has the potential to make sweeping changes to the PAM account landscape.  Ideally, we desire to accommodate the situations that are reasonably expected and to likewise prevent those that might not be.  An example of an expected situation would be during the initial setup of this very utility.  An example of an unexpected situation might be the sudden change in privileges of the API user(s), which could result in a mass onboarding of duplicates or mass offboarding of accounts, brought by the API user's lack of proper authorizations to its respective API.  To account for the unexpected, a safety mechanism has been provided.
 
 The quantity of PAM Accounts (LCD) and EPM Computers as obtained from the previous successful execution, are maintained in a DAT file that is co-located with the script `CyberArk_EPMLCD_Lifecycle.dat`.  When this baseline is compared against values obtained during the current execution, if the deviation is greater than the defined threshold, the script will either warn you (when in report-only mode) or abort execution entirely (when in production mode) to prevent sweeping changes in PAM.
 
@@ -390,7 +393,7 @@ $SafetyThresholdEPM = 0.10
 
 For most environments, these default values should provide adequate safety however it may be necessary to adjust to better suit your environmental needs.  If you are managing LCD accounts outside of this utility for example, it may be necessary to increase the PAM threshold to buffer those activities.  And depending on your environment's overall size, larger or smaller thresholds may be desirable; only you know your expected rate of change best!
 
-Additionally, you may review the output provided in report-only mode and determine that the expected on/off-boarding actions are appropriate, despite having triggered the safety.  In this situation, you have three options:
+Additionally, you may review the output provided in report-only mode and determine that the expected on/offboarding actions are appropriate, despite having triggered the safety.  In this situation, you have three options:
 
 1. Increase the respective threshold, if just temporarily, to allow execution to proceed
 
@@ -401,9 +404,9 @@ Additionally, you may review the output provided in report-only mode and determi
 It is generally **not recommended** to disable the safety mechanism for any extended period, but this option remains available in case no amount of threshold tuning would be suitable for the given environment or use-cases presenting.
 
 ## Safe Pooling
-Although there is no documented technical ceiling for the quantity of account objects that a Safe can hold, it is a good rule of thumb to keep this quantity to `30,000` or fewer to maintain optimal performance parameters in PAM. 
+Although there is no documented technical ceiling for the quantity of account objects that a Safe can hold, it is a good rule of thumb to keep this quantity to `20,000` or fewer to maintain optimal performance parameters in PAM, and keep under the default for `MaxDisplayedRecords` (see [Limitations and Known Issues](#limitations-and-known-issues) for more info). 
 
-For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single on-boarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for on-boarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows, MacOS, or Linux).  
+For LCD environments with an endpoint footprint that exceeds this volume, being constrained to a single onboarding Safe would be problematic.  To address this, the utility allows you to leverage a scalable pool of Safes for onboarding, by simply listing more than one Safe.  This list may be separate, or the same, for each platform type (i.e. Windows, MacOS, or Linux).  
 
 Consider the following example:
 
@@ -413,18 +416,20 @@ $OnboardingSafesMac = "EPMLCDMac01","EPMLCDMac02","EPMLCDMac03"
 $OnboardingSafesLinux = "EPMLCDNix01","EPMLCDNix02","EPMLCDNix03"
 ```
 
-This configuration establishes 3 Safes for on-boarding distribution, and uniquely for each platform type.
+This configuration establishes 3 Safes for onboarding distribution, and uniquely for each platform type.
 
-During the on-boarding motion, the utility will automatically analyze the current account quantities in all Safes for the respective pool and leverage the Safe with the lowest quantity of accounts for each candidate that is considered for on-boarding.  If all Safes are at an even quantity, the distribution will follow a round-robin on-boarding pattern.
+During the onboarding motion, the utility will automatically analyze the current account quantities in all Safes for the respective pool and leverage the Safe with the lowest quantity of accounts for each candidate that is considered for onboarding.  If all Safes are at an even quantity, the distribution will follow a round-robin onboarding pattern.
 
-If you wish to add another Safe as you scale up your deployment, you may do so at any time, by simply adding a new Safe to PAM, ensuring you add the solution's API user with appropriate privileges, and then adding this to the end of the list in the respective script variable.  During the next and subsequent executions, on-boarding will prefer this Safe until it reaches equilibrium with other Safes in the pool.
+If you wish to add another Safe as you scale up your deployment, you may do so at any time, by simply adding a new Safe to PAM, ensuring you add the solution's API user with appropriate privileges, and then adding this to the end of the list in the respective script variable.  During the next and subsequent executions, onboarding will prefer this Safe until it reaches equilibrium with other Safes in the pool.
 
-The utility will <u>warn</u> you if all Safes would exceed `28,000` accounts as a result of an on-boarding motion and will <u>**abort**</u> the on-boarding motion entirely, prior to initiating, if all Safes would exceed `30,000` accounts.
+The utility will <u>warn</u> you if all Safes would exceed `18,000` accounts as a result of an onboarding motion and will <u>**abort**</u> the onboarding motion entirely, prior to initiating, if all Safes would exceed `20,000` accounts.
 
 ## Logging and Reporting
 Being designed to run both interactively and non-interactively, this utility automatically generates log files during each execution.  Log files will follow a naming convention of `<SCRIPT NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.log`.  These log files are created in a `"Logs"` subfolder which will be created by the utility if it does not exist, in the same directory that contains the script file.
 
-A CSV report is generated containing all accounts that are candidates for on/off-boarding when running in Report-Only mode.  When running in production mode, the report will contain all accounts wherein on/off-boarding was attempted, along with its success or failure.  These reports are intended to simplify any subsequent data processing and review over lifecycle activities.  Report files will follow a naming convention of `<SCRIPT_NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.csv` for standard executions, and will include a `_RO.csv` tail for Report-Only executions.  These CSV reports are created automatically in a `"Reports"` subfolder, which will be created by the utility if it does not exist, in the same directory that contains the script file.  A report file will not be persisted, if it would contain no entries (i.e. executions where no accounts were identified as candidates for on/off-boarding).
+A CSV report is generated containing all accounts that are candidates for on/offboarding when running in Report-Only mode.  When running in production mode, the report will contain all accounts wherein on/offboarding was attempted along with its success or failure.  In either mode, the report will also contain all accounts or endpoints that were skipped or ignored due to an influencing configuration (i.e. `$OffboardingDelayDays` or `$SkipOnboarding` are set for example).
+
+These reports are intended to simplify any subsequent data processing and review over lifecycle activities.  Report files will follow a naming convention of `<SCRIPT_NAME>_<CURRENT DATE/TIME IN MM-dd-yyyy_HHmmss>.csv` for standard executions, and will include a `_RO.csv` tail for Report-Only executions.  These CSV reports are created automatically in a `"Reports"` subfolder, which will be created by the utility if it does not exist, in the same directory that contains the script file.  A report file will not be persisted, if it would contain no entries (i.e. executions where no accounts were identified as candidates for on/offboarding).
 
 >**NOTE:** The script will immediately abort if the log file or report file cannot be created!  As a result, it is important you ensure that the executing security principal (e.g. user or service account) has the necessary NTFS permissions in the script's directory to create the Logs and Reports folder, along with the respective files within.  Run the script interactively to observe the error you're receiving in console if this should occur.
 
@@ -442,8 +447,8 @@ The execution summary E-Mail will contain basic details about the execution in b
 - Whether the execution mode was Report-Only
 - Overall success or failure of the execution
 - Execution start datetime, end datetime, and run duration (in HH:MM:SS)
-- Quantity of accounts that were successfully (or would be) on/off-boarded
-- Quantity of accounts that failed to on/off-board (if any)
+- Quantity of accounts that were successfully (or would be) on/offboarded
+- Quantity of accounts that failed to on/offboard (if any)
 - Quantity of endpoints and/or accounts that were ignored based on run configuration or hostname exclusions
 - Whether or not the safety mechanism was triggered
 
@@ -461,7 +466,7 @@ Example execution summary E-Mail with attachments:
 >**NOTE:** The technique leverages PowerShell's native `Send-MailMessage` cmdlet which has been designated as deprecated by Microsoft, and without a suitable replacement being provided natively in .NET.  Even so, this cmdlet should remain adequate for anonymous transmission via internal mail gateways, which should naturally align to its intended use.
 
 ## Advanced Domain Name EPM Set Targeting and Process Scoping
-At present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to on-boarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
+At present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to onboarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
 
 1. We can attempt to discover the domain name via DNS against a set of possible domain names
 
@@ -497,13 +502,13 @@ Illustrated below is a two-domain example where EPM contains endpoints may have 
         $EPMSetIDs = "{xyz987}"
         ...
         ```
-These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false off-boarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
+These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false offboarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
 
 # Limitations and Known Issues
 ## The utility is only returning 20,000 accounts when searching PAM
-Although the CyberArk PAM API supports a paginated return, the [Get Accounts](https://docs.cyberark.com/PAS/Latest/en/Content/SDK/GetAccounts.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____1) endpoint is bound by an upper limit of `20,000` accounts by default.  This is upper limit is functionally tied to the `MaxDisplayedRecords` Parameter in PAM's configuration under `Administration > Options > Accounts UI Preferences > Main > View Settings`.  If the number of LCD accounts in your deployment would exceed 20,000 you must increase this value to meet or exceed your LCD account target for this utility to function correctly.
+Although the CyberArk PAM API supports a paginated return, the [Get Accounts](https://docs.cyberark.com/PAS/Latest/en/Content/SDK/GetAccounts.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____1) endpoint is bound by an upper limit of `20,000` accounts by default.  This is upper limit is functionally tied to the `MaxDisplayedRecords` Parameter in PAM's configuration under `Administration > Options > Accounts UI Preferences > Main > View Settings`.  To proactively design around this limitation, `$MaxSafeObjects` has been set to 20,000 by default.  This will allow scaling across Safes (with up to 20,000 objects per Safe) without any adverse impact or need to make any adjustment to `MaxDisplayedRecords`, so long as `$SafeSearchList` is also utilized (recommended).
 
->**NOTE:** This setting also affects the PAM Web UI (Password Vault Web Access), so it is recommended to increase in increments, and closely monitor Web UI performance following each change to ensure this does not detrimentally affect your environment's performance.
+>**NOTE:** This setting also affects the PAM Web UI (Password Vault Web Access), so it is recommended to increase in increments (if required), and closely monitor Web UI performance following each change to ensure this does not detrimentally affect your environment's performance.
 
 See the following CyberArk Knowledge Base (KB) article that describes making this change [here](https://cyberark-customers.force.com/s/article/PVWA-All-accounts-only-show-up-to-20000-records)
 
@@ -522,7 +527,7 @@ The script has been shown to experience intermittent issues writing to the log f
 ## Fully Qualified Domain Name (FQDN) Reliability
 As mentioned in the [Advanced Domain Name EPM Set Targeting and Process Scoping](#Advanced-Domain-Name-EPM-Set-Targeting-and-Process-Scoping) section above, the EPM API does not presently provide the FQDN nor DNS Suffix for Windows endpoints.  
 
-The FQDN for Windows endpoints is a required data point for PAM on-boarding and its accuracy is critical for ensuring the LCD mechanism will engage for these endpoints.  This utility can be configured to use the same, static, DNS suffix for all Windows endpoints, or to use DNS to resolve an endpoint's FQDN (potentially useful for mixed domain environments).  Unfortunately, neither solution may provide for a reliable or complete solution in every environment.  The objectively ideal outcome would be for the EPM API to simply provide this data point for us authoritatively.
+The FQDN for Windows endpoints is a required data point for PAM onboarding and its accuracy is critical for ensuring the LCD mechanism will engage for these endpoints.  This utility can be configured to use the same, static, DNS suffix for all Windows endpoints, or to use DNS to resolve an endpoint's FQDN (potentially useful for mixed domain environments).  Unfortunately, neither solution may provide for a reliable or complete solution in every environment.  The objectively ideal outcome would be for the EPM API to simply provide this data point for us authoritatively.
 
 If you would like to see the EPM API provide the FQDN (or DNS Suffix) for endpoints, please show your support by adding your vote to [this Enhancement Request (ER)](https://cyberark.my.site.com/s/article/EPM-API-to-provide-FQDN-of-computer-endpoints-c6f9-c8f)
 
