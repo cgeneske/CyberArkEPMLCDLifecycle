@@ -4,7 +4,7 @@ Organizations seeking to reduce and eliminate privilege escalation abuse, creden
 
 The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
-The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, automatically determining and executing the needed onboarding and offboarding actions in PAM.  As new agents come online in EPM, one or more standardized local accounts will be onboarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decomissioning flows, their local accounts will be offboarded from PAM.
+The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, automatically determining and executing the needed onboarding, change queueing, and offboarding actions in PAM.  As new agents come online in EPM, one or more standardized local accounts will be onboarded to PAM.  Likewise, as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decommissioning flows, their local accounts will be offboarded from PAM.  And if an EPM agent's install time is more recent than its last password change in PAM (indicating a reimage activity has occurred) an immediate change activity is queued in PAM.  
 
 **This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting onboarding activities in CyberArk PAM!**
 
@@ -16,7 +16,8 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate onboarding Safes for staging Windows, MacOS and Linux accounts
 - Supports onboarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
-- Supports an offboarding delay to serve as a buffer against rapid turnover in the EPM database
+- Supports a configurable offboarding delay to buffer against rapid turnover in the EPM database
+- Aware of endpoints reimaged under the same hostname and will queue immediate password rotations in PAM
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
@@ -209,7 +210,7 @@ There are a series of script variables that must be set off default, to values t
 - `$ReportOnlyMode`
     - When set to `$true` will report in console, log, and CSV, which accounts would be onboarded to, and/or offboarded from, PAM. **This is a read-only run mode!**
 - `$SkipOnBoarding`
-    - When set to `$true` will skip the onboarding logic.
+    - When set to `$true` will skip the onboarding and change queueing logic.
 - `$SkipOffBoarding`
     - When set to `$true` will skip the offboarding logic.
 - `$SkipWindows`
@@ -449,6 +450,8 @@ The execution summary E-Mail will contain basic details about the execution in b
 - Execution start datetime, end datetime, and run duration (in HH:MM:SS)
 - Quantity of accounts that were successfully (or would be) on/offboarded
 - Quantity of accounts that failed to on/offboard (if any)
+- Quantity of accounts that were successfully (or would be) queued for immediate change due to a reimage
+- Quantity of accounts that failed to queue for immediate change
 - Quantity of endpoints and/or accounts that were ignored based on run configuration or hostname exclusions
 - Whether or not the safety mechanism was triggered
 
@@ -520,6 +523,11 @@ If you are interested in having this upper limit bound to another configuration 
 
 ## ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
 Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following CyberArk Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
+
+## ERROR: *"EPVWA179E A CPM change task is not currently allowed."*
+Presently, the PAM API does not provide sufficient detail to denote when an account is already scheduled for an immediate change.  As a result, when the script is executed multiple times in rapid succession, it's possible that a password change queueing will be attempted on accounts which have already been scheduled.  In these situations, the error *"EPVWA179E A CPM change task is not currently allowed."* will be received which is expected and is safe to ignore.  
+
+To avoid these errors, it is generally recommended to delay subsequent script executions until the PAM LCD Platform's `ImmediateInterval` has passed - this is five (5) minutes by default.  Doing so will ensure all accounts pending change, will have properly transitioned into their expected disabled state by the CPM (pending change by the endpoint agent) and will be correctly evaluated by the script.
 
 ## PowerShell ISE Logging
 The script has been shown to experience intermittent issues writing to the log file, due to file locks, when running from within PowerShell ISE.  Therefore it is highly recommended that when running this script interactively, it be done from a standard PowerShell prompt and not from within PowerShell ISE.

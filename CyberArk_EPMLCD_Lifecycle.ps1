@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.5.0
+.VERSION 1.6.0
 
 .GUID cf187d04-2d7d-48aa-94cf-80d4f33f6a68
 
@@ -8,7 +8,7 @@
 
 .DESCRIPTION CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD)
 
-.COPYRIGHT Copyright (c) 2024 Craig Geneske
+.COPYRIGHT Copyright (c) 2025 Craig Geneske
 
 .LICENSEURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle/blob/main/LICENSE.md 
 
@@ -35,9 +35,10 @@ standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this
 the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
 The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, 
-automatically determining and executing the needed onboarding and offboarding actions in PAM.  As new agents come online in EPM, one or more 
-standardized local accounts will be onboarded to PAM.  Likewise as endpoints are pruned from EPM, either through organic inactivity-based attrition 
-or proactive computer decomissioning flows, their local accounts will be offboarded from PAM.
+automatically determining and executing the needed onboarding, change queueing, and offboarding actions in PAM.  As new agents come online in EPM, 
+one or more standardized local accounts will be onboarded to PAM.  Likewise, as endpoints are pruned from EPM, either through organic inactivity-based 
+attrition or proactive computer decommissioning flows, their local accounts will be offboarded from PAM.  And if an EPM agent's install time is more 
+recent than its last password change in PAM (indicating a reimage activity has occurred) an immediate change activity is queued in PAM. 
 
 **This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of 
 any local accounts prior to conducting onboarding activities in CyberArk PAM!**
@@ -48,7 +49,8 @@ Key Features:
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate onboarding Safes for staging Windows, MacOS and Linux accounts
 - Supports onboarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
-- Supports an offboarding delay to serve as a buffer against rapid turnover in the EPM database
+- Supports a configurable offboarding delay to buffer against rapid turnover in the EPM database
+- Aware of endpoints reimaged under the same hostname and will queue immediate password rotations in PAM
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
 - Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
 - **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
@@ -88,6 +90,9 @@ VERSION HISTORY:
 1.4.1   4/9/2024    - Fixed a bug that caused an unexpected interrupt if $SafeSearchList was defined.  Fixed a bug where duplicate
                       entries of the same computer in EPM (reimaging scenarios) would result in duplicate onboarding actions in PAM.
 1.5.0   8/7/2024    - Added configurable offboarding delay and improved reporting when configured to skip on/offboarding.
+1.6.0   1/3/2025    - Added handling to immediately queue password rotations in PAM during the onboarding sequence, for endpoints which 
+                      are detected as having been reimaged with the same hostname since last password change in PAM.  Improved accuracy of 
+                      password expiration detection (EPM API) and EPM computer deduplication logic.
 
 DISCLAIMER:
 This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
@@ -133,7 +138,7 @@ $OnboardingSafesLinux = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $EndpointDomainNames = ""
 $EndpointHostnameExclusionsRegex = ""
 $LCDPlatformSearchRegex = ".*"
-$SafeSearchList = ""
+$SafeSearchList = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $EPMSetIDs = ""
 $EPMRegion = "US"
 $PAMHostname = "hostname"
@@ -642,17 +647,32 @@ Function Invoke-APIAuthentication {
         "PAM" {
             if ($PAMHostname -match "\.cyberark\.cloud$") {
                 try{
-                    $IdentityTenantUri = [System.Uri](Invoke-WebRequest -Uri "https://$PAMHostname" -MaximumRedirection 0 -ErrorAction Ignore).Headers.Location
-                    $APIAuthUrl = "https://$($IdentityTenantUri.Host)/oauth2/platformtoken"
-                    $postBody = "grant_type=client_credentials&client_id=$([System.Web.HttpUtility]::UrlEncode($APICred.Username))&client_secret=$([System.Web.HttpUtility]::UrlEncode($APICred.Password))"
-                    $contentType = "application/x-www-form-urlencoded"
+                    $IdentityTenantHost = ([System.Uri](Invoke-WebRequest -Uri "https://$PAMHostname" -MaximumRedirection 0 -ErrorAction Ignore).Headers.Location).Host
                 }
                 catch {
-                    Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API, there was a problem trying to locate the CyberArk Identity Shared Services tenant"
-                    $APICred = $null
-                    $postBody = $null
-                    throw
+                    #Gracefully handling stricter behavior for Invoke-WebRequest present in PowerShell v7.x Core
+                    if (($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::Found) -and ($_.Exception.Response.ReasonPhrase -match "Moved Temporarily")) {
+                        if ($_.Exception.Response.Headers.Location.Host) {
+                            $IdentityTenantHost = $_.Exception.Response.Headers.Location.Host
+                            $Error.Clear()
+                        }
+                        else {
+                            Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API, there was a problem trying to locate the CyberArk Identity Shared Services tenant"
+                            $APICred = $null
+                            $postBody = $null
+                            throw
+                        }
+                    }
+                    else {
+                        Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API, there was a problem trying to locate the CyberArk Identity Shared Services tenant"
+                        $APICred = $null
+                        $postBody = $null
+                        throw
+                    }
                 }
+                $APIAuthUrl = "https://$IdentityTenantHost/oauth2/platformtoken"
+                $postBody = "grant_type=client_credentials&client_id=$([System.Web.HttpUtility]::UrlEncode($APICred.Username))&client_secret=$([System.Web.HttpUtility]::UrlEncode($APICred.Password))"
+                $contentType = "application/x-www-form-urlencoded"
             }
             else {
                 $APIAuthUrl = $PAMAuthLogonUrl
@@ -679,6 +699,11 @@ Function Invoke-APIAuthentication {
     
     try {
         $result = Invoke-RestMethod -Method Post -Uri $APIAuthUrl -Body $postBody -ContentType $contentType
+        if ($App -match "EPM") {
+            if ($result.IsPasswordExpired) {
+                throw "The password has expired"
+            }
+        }
         Write-Log -Type INF -Message "Successfully authenticated to [$App] API"
         if ($App -match "PAM" -and $PAMHostname -match "\.cyberark\.cloud$") {
             return "Bearer " + $result.access_token
@@ -995,6 +1020,9 @@ Function Get-PAMLCDAccounts {
                                 Address = $account.address
                                 Id = $account.id
                                 LastModified = [DateTimeOffset]::FromUnixTimeSeconds($account.categoryModificationTime).UtcDateTime
+                                LastChanged =  [DateTimeOffset]::FromUnixTimeSeconds($account.secretManagement.lastModifiedTime).UtcDateTime
+                                Status = $account.secretManagement.status
+                                AutoMgmtEnabled = $account.secretManagement.automaticManagementEnabled
                             }
                             PlatformBaseID = $sourcePlatform
                         })
@@ -1168,8 +1196,9 @@ Function Get-EPMComputers {
         $timer = $null
     }
 
+    [List[PSCustomObject]]$preQualifiedComps = @()
     [List[PSCustomObject]]$qualifiedComps = @()
-    Write-Log -Type INF -Message "Qualifying EPM computers with domain names provided and deduplicating the results (this may take a while)..."
+    Write-Log -Type INF -Message "Qualifying EPM computers with domain names provided and deduplicating the results..."
     foreach($comp in $EPMComputerList) {
         $finalSuffix = ""
         if ($ValidateDomainNamesDNS -and $comp.Platform -eq "Windows") {
@@ -1231,14 +1260,50 @@ Function Get-EPMComputers {
             }
         }
 
-        $qualifiedComps.Add([PSCustomObject]@{
+        $preQualifiedComps.Add([PSCustomObject]@{
             ComputerName = $comp.ComputerName
             Platform = $comp.Platform
+            InstallTime = $comp.InstallTime
         })
         
     }
-    $qualifiedComps = $qualifiedComps | Sort-Object -Property ComputerName | Get-Unique -AsString
-    Write-Log -Type INF -Message "EPM computer qualification and deduplication complet, unique EPM computer total is [$($qualifiedComps.Count)]"
+    
+    #Create EPM Computers Index
+    $EPMComputersIndex = @{}
+    foreach ($comp in $preQualifiedComps) {
+        $key = $comp.ComputerName
+        $data = $EPMComputersIndex[$key]
+        if ($data -is [Collections.ArrayList]) {
+            $data.Add($comp) > $null
+        }
+        elseif ($data) {
+            $EPMComputersIndex[$key] = [Collections.ArrayList]@($data, $comp)
+        }
+        else {
+            $EPMComputersIndex[$key] = $comp
+        }
+    }
+
+    $comp = $null
+
+    foreach ($row in $EPMComputersIndex.GetEnumerator()) {
+        if ($row.Value -is [Collections.ArrayList]) {
+            #Duplicates for this ComputerName exist in EPM, adding only the one with the latest install time
+            $dateRef = [datetime]::MinValue
+            foreach ($comp in $row.Value) {
+                if ([datetime]$comp.InstallTime -gt $dateRef) {
+                    $latestComp = $comp
+                    $dateRef = [datetime]$comp.InstallTime
+                } 
+            }
+            $qualifiedComps.Add($latestComp)
+        }
+        else {
+            #No duplicates for this ComputerName exist in EPM
+            $qualifiedComps.Add($row.Value)
+        }
+    }
+    Write-Log -Type INF -Message "EPM computer qualification and deduplication complete.  Using [$($qualifiedComps.Count)] unique computer names out of [$($EPMComputerList.Count)] total."
     Compare-ChangeFactorAndUpdate -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value $qualifiedComps.Count
     return $qualifiedComps, $ignoreList
 }
@@ -1250,7 +1315,7 @@ Function Add-PAMAccountsBulk {
     .DESCRIPTION
         Adds accounts to PAM via API as a bulk upload job.
     .PARAMETER AccountList
-        List of PSObject representing the return value of Get-OnBoardingCandidates (Members: UserName, Address, Platform)
+        List of PSObject representing the first return value of Get-OnBoardingAndChangeCandidates (Members: UserName, Address, Platform)
     .PARAMETER SafePool
         A hashtable containing the onboarding safes for Windows and MacOS and their current quantities
     .EXAMPLE
@@ -1274,11 +1339,7 @@ Function Add-PAMAccountsBulk {
         [hashtable]$SafePool
     )
 
-    Write-Log -Type INF -Message "##########################################"
-    Write-Log -Type INF -Message "#                                        #"
-    Write-Log -Type INF -Message "# BEGIN ONBOARDING ALL CANDIDATES TO PAM #"
-    Write-Log -Type INF -Message "#                                        #"
-    Write-Log -Type INF -Message "##########################################"
+    Write-Log -Type INF -Message "--> BEGIN ONBOARDING ALL CANDIDATES TO PAM <--"
     Write-Log -Type INF -Message "Constructing bulk onboarding job chunks..."
     $haveWarned = $false
     [List[PSCustomObject]]$jobChunks = @()
@@ -1289,13 +1350,13 @@ Function Add-PAMAccountsBulk {
     foreach ($account in $AccountList) {
         $safeName = ($SafePool[$account.Platform].GetEnumerator() | Sort-Object -Property "Value" | Select-Object -First 1).Key
         if ($SafePool[$account.Platform][$safeName] -ge $WarnSafeObjects -and !$haveWarned) {
-            Write-Log -Type WRN -Message "All safes in the safe pool would reach or exceed the warning threshold of [$WarnSafeObjects] `
-                                          objects with this onboarding activity.  Please add more safes to the safe pool!".Replace("`n","")
+            Write-Log -Type WRN -Message ("All safes in the safe pool would reach or exceed the warning threshold of [$WarnSafeObjects] " + 
+                                         "objects with this onboarding activity.  Please add more safes to the safe pool!")
             $haveWarned = $true
         }
         if ($SafePool[$account.Platform][$safeName] -ge $MaxSafeObjects) {
-            Write-Log -Type ERR -Message "All safes in the safe pool would reach or exceed the maximum threshold of [$MaxSafeObjects] `
-                                          objects, unable to commit onboarding.  Please add more safes to the safe pool!".Replace("`n","")
+            Write-Log -Type ERR -Message ("All safes in the safe pool would reach or exceed the maximum threshold of [$MaxSafeObjects] " +
+                                          "objects, unable to commit onboarding.  Please add more safes to the safe pool!")
             throw
         }
         switch ($account.Platform) {
@@ -1444,12 +1505,66 @@ Function Add-PAMAccountsBulk {
         $jobId = $null
         $jobStatus = $null
     }
-    Write-Log -Type INF -Message "##############################"
-    Write-Log -Type INF -Message "#                            #"
-    Write-Log -Type INF -Message "# ONBOARDING TO PAM COMPLETE #"
-    Write-Log -Type INF -Message "#                            #"
-    Write-Log -Type INF -Message "##############################"
+
     Write-Log -Type INF -Message "[$successTotal] of [$($AccountList.Count)] accounts were successfully onboarded"
+    Write-Log -Type INF -Message "--> ONBOARDING TO PAM COMPLETE <--"
+}
+
+Function Invoke-PAMAccountsChange {
+    <#
+    .SYNOPSIS
+        Queues accounts in PAM for an immediate password change.
+    .DESCRIPTION
+        Queues accounts in PAM for an immediate password change.
+    .PARAMETER AccountList
+        List of PSObject representing the second return value of Get-OnBoardingAndChangeCandidates ($PAMLCDAccounts.Instance)
+    .EXAMPLE
+        Invoke-PAMAccountsChange -AccountList $changeCandidates
+    .NOTES
+        The following script-level variables are used:
+            - $PAMAccountsUrl
+            - $PAMSessionToken
+
+        Author: Craig Geneske
+    #>
+    Param(       
+        [Parameter(Mandatory = $true)]
+        [List[PSCustomObject]]$AccountList
+    )
+
+    $actionedTotal = 0
+    $successTotal = 0
+
+    Write-Log -Type INF -Message "--> BEGIN CHANGE QUEUING ALL CANDIDATES IN PAM <--"
+    foreach ($account in $AccountList) {
+        try {
+            Write-Log -Type INF -Message "Processing [$($actionedTotal + 1)] of [$($AccountList.Count)] ($([math]::Round(($actionedTotal + 1) / $AccountList.Count * 100))%) - Queuing password change for account [$($account.id) - $($account.UserName)@$($account.Address)] in PAM..."
+            $paramsHt = @{
+                Method = "Post"
+                Uri = ($PAMAccountsUrl + "/$($account.id)/Change")
+                ContentType = "application/json"
+                Headers = @{ Authorization = $PAMSessionToken }
+            }
+            Invoke-PAMRestMethod -Parameters $paramsHt *> $null
+            Add-Content -Path $ReportFilePath -Value "$($account.UserName),$($account.Address),$($account.CompPlatform),QueuingChange,Success" -ErrorAction SilentlyContinue *> $null
+            $successTotal++
+            $actionedTotal++
+        }
+        catch {
+            Invoke-ParseFailureResponse -Component PAM -ErrorRecord $_ -Message "Failed to queue account [$($account.UserName)@$($account.Address)] for change in PAM"
+            Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),$($account.CompPlatform),QueuingChange,Failed,$($_.ErrorDetails.Message.Replace(","," "))" -ErrorAction SilentlyContinue *> $null
+            if ($_.Exception.Message -match "PAM API maximum re-authentication attempts has been reached") {
+                break
+            }
+            else {
+                $Error.Clear()
+                $actionedTotal++
+            }
+        }
+    }
+
+    Write-Log -Type INF -Message "[$successTotal] of [$($AccountList.Count)] accounts were successfully queued for change"
+    Write-Log -Type INF -Message "--> QUEUING CHANGES IN PAM COMPLETE <--"
 }
 
 Function Remove-PAMAccounts {
@@ -1476,11 +1591,8 @@ Function Remove-PAMAccounts {
 
     $actionedTotal = 0
     $successTotal = 0
-    Write-Log -Type INF -Message "#############################################"
-    Write-Log -Type INF -Message "#                                           #"
-    Write-Log -Type INF -Message "# BEGIN OFFBOARDING ALL CANDIDATES FROM PAM #"
-    Write-Log -Type INF -Message "#                                           #"
-    Write-Log -Type INF -Message "#############################################"
+
+    Write-Log -Type INF -Message "--> BEGIN OFFBOARDING ALL CANDIDATES FROM PAM <--"
     foreach ($account in $AccountList) {
         try {
             Write-Log -Type INF -Message "Processing [$($actionedTotal + 1)] of [$($AccountList.Count)] ($([math]::Round(($actionedTotal + 1) / $AccountList.Count * 100))%) - Offboarding account [$($account.id) - $($account.UserName)@$($account.Address)] from PAM..."
@@ -1508,12 +1620,9 @@ Function Remove-PAMAccounts {
             }
         }
     }
-    Write-Log -Type INF -Message "#################################"
-    Write-Log -Type INF -Message "#                               #"
-    Write-Log -Type INF -Message "# OFFBOARDING FROM PAM COMPLETE #"
-    Write-Log -Type INF -Message "#                               #"
-    Write-Log -Type INF -Message "#################################"
+
     Write-Log -Type INF -Message "[$successTotal] of [$($AccountList.Count)] accounts were successfully offboarded"
+    Write-Log -Type INF -Message "--> OFFBOARDING FROM PAM COMPLETE <--"
 }
 
 Function Confirm-ScriptVariables {
@@ -1758,19 +1867,20 @@ Function Update-DatFile {
     }
 }
 
-Function Get-OnBoardingCandidates {
+Function Get-OnBoardingAndChangeCandidates {
     <#
     .SYNOPSIS
-        Determines all onboarding candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
+        Determines all onboarding and change candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
     .DESCRIPTION
-        Determines all onboarding candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
-        Returns a List of PSObject containing the Username, Address, and Platform to be used for onboarding candidates
+        Determines all onboarding and change candidates based on accounts pre-existing in PAM and all existing EPM endpoints.
+        Returns a List of PSObject containing the Username, Address, and Platform to be used for onboarding candidates, as well
+        as a List of PSObject containing accounts that should be rotated due to a reimage by the same name being detected.
     .PARAMETER PAMAccounts
         A List of PSObject that represent the serialized results of a PAM "Get Accounts" API call
     .PARAMETER EPMEndpoints
         A List of PSObject that represents the serialized results of an EPM "Get Computers" API call (with qualified hostnames)
     .EXAMPLE
-        $onboardCandidates = Get-OnBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
+        $onboardCandidates, $changeCandidates = Get-OnBoardingAndChangeCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
     .NOTES
         The following script-level variables are used:
         - $EndpointUserNamesWin
@@ -1787,15 +1897,16 @@ Function Get-OnBoardingCandidates {
     )
 
     [List[PSCustomObject]]$onboardCandidates = @()
-    Write-Log -Type INF -Message "Determining onboarding candidates..."
+    [List[PSCustomObject]]$changeCandidates = @()
+    Write-Log -Type INF -Message "Determining onboarding and change candidates..."
 
     #Creating PAM Accounts Index
     $PAMAccountsIndex = @{}
     foreach ($account in $PAMAccounts) {
-        $key = $account.Instance.("Address")
+        $key = $account.Instance.Address
         $data = $PAMAccountsIndex[$key]
         if ($data -is [Collections.ArrayList]) {
-            $data.add($account.Instance) > $null
+            $data.Add($account.Instance) > $null
         }
         elseif ($data) {
             $PAMAccountsIndex[$key] = [Collections.ArrayList]@($data, $account.Instance)
@@ -1804,41 +1915,35 @@ Function Get-OnBoardingCandidates {
             $PAMAccountsIndex[$key] = $account.Instance
         }
     }
+
+    $account = $null
     
     foreach ($comp in $EPMEndpoints) {
-        [List[PSCustomObject]]$potentialOnboardCandidates = @()
-        $matchingKeys = $PAMAccountsIndex.Keys -match $("^$([regex]::Escape($comp.ComputerName))$")
-        foreach ($key in $matchingKeys) {
-            $potentialOnboardCandidates.Add($PAMAccountsIndex[$key])
-        }
         $usernameList = @()
         switch ($comp.Platform) {
             "Windows" { $usernameList = $EndpointUserNamesWin; Break}
             "MacOS" { $usernameList = $EndpointUserNamesMac; Break}
             "Linux" { $usernameList = $EndpointUserNamesLinux; Break}
         }
+        foreach ($account in $PAMAccountsIndex[$comp.ComputerName]) {
+            if ($usernameList -contains $account.Username -and `
+                ($account.LastChanged -lt [datetime]$comp.InstallTime) -and `
+                ($account.Status -notmatch "^inProcess$" -and $account.AutoMgmtEnabled)) {
+                    $account | Add-Member -NotePropertyName CompPlatform -NotePropertyValue $comp.Platform
+                    $changeCandidates.Add($account)
+            }
+        }
+        $account = $null
+
         foreach ($username in $usernameList) {
-            if ($potentialOnboardCandidates) {
-                $userNameExistsInPAM = $false
-                foreach ($account in $potentialOnboardCandidates) {
-                    if ($account.userName -match "^$([regex]::escape($username))$") {
-                        $userNameExistsInPAM = $true
-                        break
-                    }
-                }
-                if (!$userNameExistsInPAM) {
-                    if ($SkipOnboarding) {
-                        Add-Content -Path $ReportFilePath -Value "$username,$($comp.ComputerName),$($comp.Platform),Onboarding,Skipped,Account would have been onboarded however onboarding is disabled per the current run configuration." -ErrorAction SilentlyContinue *> $null
-                        continue
-                    }
-                    $onboardCandidates.Add([PSCustomObject]@{
-                        Username = $username
-                        Address = $comp.ComputerName
-                        Platform = $comp.Platform
-                    })
+            $userNameExistsInPAM = $false
+            foreach ($account in $PAMAccountsIndex[$comp.ComputerName]) {
+                if ($account.userName -match "^$([regex]::escape($username))$") {
+                    $userNameExistsInPAM = $true
+                    break
                 }
             }
-            else {
+            if (!$userNameExistsInPAM) {
                 if ($SkipOnboarding) {
                     Add-Content -Path $ReportFilePath -Value "$username,$($comp.ComputerName),$($comp.Platform),Onboarding,Skipped,Account would have been onboarded however onboarding is disabled per the current run configuration." -ErrorAction SilentlyContinue *> $null
                     continue
@@ -1848,11 +1953,12 @@ Function Get-OnBoardingCandidates {
                     Address = $comp.ComputerName
                     Platform = $comp.Platform
                 })
-            } 
+            }
         }
     }
     Write-Log -Type INF -Message "[$($onboardCandidates.Count)] account(s) identified for onboarding"
-    return $onboardCandidates
+    Write-Log -Type INF -Message "[$($changeCandidates.Count)] account(s) identified for change queueing (reimaged)"
+    return $onboardCandidates, $changeCandidates
 }
 
 Function Get-OffBoardingCandidates {
@@ -1895,10 +2001,10 @@ Function Get-OffBoardingCandidates {
     #Create EPM Computers Index
     $EPMComputersIndex = @{}
     foreach ($comp in $EPMEndpoints) {
-        $key = $comp.("ComputerName")
+        $key = $comp.ComputerName
         $data = $EPMComputersIndex[$key]
         if ($data -is [Collections.ArrayList]) {
-            $data.add($comp) > $null
+            $data.Add($comp) > $null
         }
         elseif ($data) {
             $EPMComputersIndex[$key] = [Collections.ArrayList]@($data, $comp)
@@ -1911,10 +2017,10 @@ Function Get-OffBoardingCandidates {
     #Create Ignore List Index
     $IgnoreListIndex = @{}
     foreach ($comp in $IgnoreList) {
-        $key = $comp.("ComputerName")
+        $key = $comp.ComputerName
         $data = $IgnoreListIndex[$key]
         if ($data -is [Collections.ArrayList]) {
-            $data.add($comp) > $null
+            $data.Add($comp) > $null
         }
         elseif ($data) {
             $IgnoreListIndex[$key] = [Collections.ArrayList]@($data, $comp)
@@ -1923,53 +2029,54 @@ Function Get-OffBoardingCandidates {
             $IgnoreListIndex[$key] = $comp
         }
     }
-
+    
     foreach ($account in $PAMAccounts) {
-        if (!($EPMComputersIndex.Keys -match $("^$([regex]::Escape($account.Instance.Address))$"))) {
-            $usernameList = @()
-            switch ($account.PlatformBaseID) {
-                "WinLooselyDevice" { $usernameList = $EndpointUserNamesWin; $compPlatform = "Windows"; Break }
-                "Unix" { $usernameList = $EndpointUserNamesMac; $compPlatform = "MacOS"; Break }
-                "UnixLooselyDevice" { $usernameList = $EndpointUserNamesLinux; $compPlatform = "Linux"; Break }
+        if ($EPMComputersIndex[$account.Instance.Address]) {
+            continue
+        }
+        $usernameList = @()
+        switch ($account.PlatformBaseID) {
+            "WinLooselyDevice" { $usernameList = $EndpointUserNamesWin; $compPlatform = "Windows"; Break }
+            "Unix" { $usernameList = $EndpointUserNamesMac; $compPlatform = "MacOS"; Break }
+            "UnixLooselyDevice" { $usernameList = $EndpointUserNamesLinux; $compPlatform = "Linux"; Break }
+        }
+        if ($IgnoreListIndex[$account.Instance.Address]) {
+            Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,There is a matching computer in EPM that should be skipped due to the current run configuration" -ErrorAction SilentlyContinue *> $null
+            continue
+        }
+        if ($EndpointHostnameExclusionsRegex) {
+            foreach ($pattern in $EndpointHostnameExclusionsRegex) {
+                $matchFound = $false
+                if ($account.Instance.Address -match $pattern) {
+                    $matchFound = $true
+                    Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,The account's address in PAM matches a hostname exclusion pattern" -ErrorAction SilentlyContinue *> $null
+                    break
+                }
             }
-            if ($IgnoreListIndex.Keys -match $("^$([regex]::Escape($account.Instance.Address))$")) {
-                Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,There is a matching computer in EPM that should be skipped due to the current run configuration" -ErrorAction SilentlyContinue *> $null
+            if ($matchFound) {
                 continue
             }
-            if ($EndpointHostnameExclusionsRegex) {
-                foreach ($pattern in $EndpointHostnameExclusionsRegex) {
-                    $matchFound = $false
-                    if ($account.Instance.Address -match $pattern) {
-                        $matchFound = $true
-                        Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,The account's address in PAM matches a hostname exclusion pattern" -ErrorAction SilentlyContinue *> $null
+        }
+        foreach ($username in $usernameList) {
+            if ($account.Instance.UserName -match "^$([regex]::Escape($username))$") {
+                if ($account.Instance.LastModified -le [DateTime]::UtcNow.AddDays(-$OffboardingDelayDays)) {
+                    if ($SkipOffBoarding) {
+                        Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,Account would have been offboarded however offboarding is disabled per the current run configuration" -ErrorAction SilentlyContinue *> $null
                         break
                     }
+                    $account.Instance | Add-Member -NotePropertyName CompPlatform -NotePropertyValue $compPlatform
+                    $offboardCandidates.Add($account.Instance)
+                    break
                 }
-                if ($matchFound) {
-                    continue
-                }
-            }
-            foreach ($username in $usernameList) {
-                if ($account.Instance.UserName -match "^$([regex]::Escape($username))$") {
-                    if ($account.Instance.LastModified -le [DateTime]::UtcNow.AddDays(-$OffboardingDelayDays)) {
-                        if ($SkipOffBoarding) {
-                            Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,Account would have been offboarded however offboarding is disabled per the current run configuration" -ErrorAction SilentlyContinue *> $null
-                            break
-                        }
-                        $account.Instance | Add-Member -NotePropertyName CompPlatform -NotePropertyValue $compPlatform
-                        $offboardCandidates.Add($account.Instance)
-                        break
+                else {
+                    $offBoardingTimespan = $account.Instance.LastModified - [DateTime]::UtcNow.AddDays(-$OffboardingDelayDays)
+                    $eligibleFrom = [DateTime]::UtcNow.AddDays($offBoardingTimespan.TotalDays)
+                    $daysFromOffboarding = $offBoardingTimespan.Days
+                    if (!$offBoardingTimespan.Days) {
+                        $daysFromOffboarding = "less than 1"
                     }
-                    else {
-                        $offBoardingTimespan = $account.Instance.LastModified - [DateTime]::UtcNow.AddDays(-$OffboardingDelayDays)
-                        $eligibleFrom = [DateTime]::UtcNow.AddDays($offBoardingTimespan.TotalDays)
-                        $daysFromOffboarding = $offBoardingTimespan.Days
-                        if (!$offBoardingTimespan.Days) {
-                            $daysFromOffboarding = "less than 1"
-                        }
-                        Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,Account will be delayed offboarding for approximately [$daysFromOffboarding] more day(s) - Eligible from [$eligibleFrom] UTC" -ErrorAction SilentlyContinue *> $null
-                        break
-                    }
+                    Add-Content -Path $ReportFilePath -Value "$($account.Instance.Username),$($account.Instance.Address),$compPlatform,Offboarding,Skipped,Account will be delayed offboarding for approximately [$daysFromOffboarding] more day(s) - Eligible from [$eligibleFrom] UTC" -ErrorAction SilentlyContinue *> $null
+                    break
                 }
             }
         }
@@ -1990,6 +2097,9 @@ Function Write-PAMLifecycleReport {
     .PARAMETER OffboardCandidates
         An array of PSObject that represents the deserialized results of a PAM "Get Accounts" API call pared down to only
         the candidates that should be considered for offboarding.
+    .PARAMETER ChangeCandidates
+        An array of PSObject that represents the deserialized results of a PAM "Get Accounts" API call pared down to only
+        the candidates that should be considered for change due to a reimage.
     .PARAMETER IgnoreList
         An array of PSObject that represent the deserialized results of an EPM "Get Computers" API call, which should be skipped
     .EXAMPLE
@@ -2007,53 +2117,92 @@ Function Write-PAMLifecycleReport {
 
         [Parameter(Mandatory = $false)]
         [List[PSCustomObject]]$OffboardCandidates,
+    
+        [Parameter(Mandatory = $false)]
+        [List[PSCustomObject]]$ChangeCandidates,
 
         [Parameter(Mandatory = $false)]
         [List[PSCustomObject]]$IgnoreList
     )
 
-    Write-Log -Type INF -Message "###################################################################"
-    Write-Log -Type INF -Message "#                                                                 #"
-    Write-Log -Type INF -Message "#  REPORT ONLY MODE DETECTED!  Sending results to log and CSV...  #"
-    Write-Log -Type INF -Message "#                                                                 #"
-    Write-Log -Type INF -Message "###################################################################"
+    Write-Log -Type WRN -Message "--> REPORT ONLY MODE DETECTED!  SENDING RESULTS TO LOG AND CSV ONLY <--"
     if ($OnboardCandidates) {
-        Write-Log -Type INF -Message "The following [$($OnboardCandidates.Count)] account(s) have been identified for onboarding:"
-        foreach ($candidate in $OnboardCandidates) {
-            Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.Platform),Onboarding,Reported," -ErrorAction SilentlyContinue *> $null
+        if ($($OnboardCandidates.Count) -gt 25) {
+            Write-Log -Type INF -Message "[$($OnboardCandidates.Count)] accounts would have been onboarded, adding list to CSV report (this may take a while)..."
+            foreach ($candidate in $OnboardCandidates) {
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.Platform),Onboarding,Reported,`n" -ErrorAction SilentlyContinue *> $null
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "The following [$($OnboardCandidates.Count)] account(s) would have been onboarded:"
+            foreach ($candidate in $OnboardCandidates) {
+                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.Platform),Onboarding,Reported," -ErrorAction SilentlyContinue *> $null
+            }
         }
     }
     else {
-        Write-Log -Type INF -Message "No accounts have been identified for onboarding"
+        Write-Log -Type INF -Message "No accounts would have been onboarded"
+    }
+
+    if ($ChangeCandidates) {
+        if ($($ChangeCandidates.Count) -gt 25) {
+            Write-Log -Type INF -Message "[$($ChangeCandidates.Count)] accounts would have been change queued (reimaged), adding list to CSV report (this may take a while)..."
+            foreach ($candidate in $ChangeCandidates) {
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.CompPlatform),QueuingChange,Reported," -ErrorAction SilentlyContinue *> $null
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "The following [$($ChangeCandidates.Count)] account(s) would have been change queued (reimaged):"
+            foreach ($candidate in $ChangeCandidates) {
+                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.CompPlatform),QueuingChange,Reported," -ErrorAction SilentlyContinue *> $null
+            }
+        }
+    }
+    else {
+        Write-Log -Type INF -Message "No accounts would have been change queued (reimaged)"
     }
 
     if ($OffboardCandidates) {
-        Write-Log -Type INF -Message "The following [$($OffboardCandidates.Count)] account(s) have been identified for offboarding:"
-        foreach ($candidate in $OffboardCandidates) {
-            Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
-            Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.CompPlatform),Offboarding,Reported," -ErrorAction SilentlyContinue *> $null
+        if ($($OffboardCandidates.Count) -gt 25) {
+            Write-Log -Type INF -Message "[$($OffboardCandidates.Count)] accounts would have been offboarded, adding list to CSV report (this may take a while)..."
+            foreach ($candidate in $OffboardCandidates) {
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.CompPlatform),Offboarding,Reported," -ErrorAction SilentlyContinue *> $null
+            }
+        }
+        else {
+            Write-Log -Type INF -Message "The following [$($OffboardCandidates.Count)] account(s) would have been offboarded:"
+            foreach ($candidate in $OffboardCandidates) {
+                Write-Log -Type INF -Message "---> Username: [$($candidate.Username)] | Address: [$($candidate.Address)]"
+                Add-Content -Path $ReportFilePath -Value "$($candidate.Username),$($candidate.Address),$($candidate.CompPlatform),Offboarding,Reported," -ErrorAction SilentlyContinue *> $null
+            }
         }
     }
     else {
-        Write-Log -Type INF -Message "No accounts have been identified for offboarding"
+        Write-Log -Type INF -Message "No accounts would have been offboarded"
     }
 
     if ($IgnoreList) {
-        Write-Log -Type INF -Message "The following [$($ignoreList.Count)] endpoint(s) were skipped -- see the report file for full context:"
-        foreach ($comp in $ignoreList) {
-            Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
-            #Skipped endpoints are added to the report file at their time of discovery regardless of the run mode, so we don't need to Add-Content here
+        #Skipped endpoints are added to the report file at their time of discovery regardless of the run mode, so we don't need to Add-Content here
+        if ($($IgnoreList.Count) -gt 25) {
+            Write-Log -Type INF -Message "[$($IgnoreList.Count)] endpoints would have been skipped - Please see the CSV report for details"
+        }
+        else {
+            Write-Log -Type INF -Message "The following [$($IgnoreList.Count)] endpoint(s) would have been skipped - Please see the CSV report for additional details:"
+            foreach ($comp in $IgnoreList) {
+                Write-Log -Type INF -Message "---> Endpoint: [$($comp.ComputerName)]"
+            }
         }
     }
     else {
-        Write-Log -Type INF -Message "No endpoints have been skipped"
+        Write-Log -Type INF -Message "No endpoints would have been skipped"
     }
+
     if($SafetyTriggered) {
         Write-Log -Type WRN -Message "--> SAFETY TRIGGERED <--"
         Write-Log -Type WRN -Message "EPM Computers or PAM accounts have changed by more than their respective thresholds since last execution.  See log entry above for more details"
     }
-    Write-Log -Type INF -Message "###################################################################"
 }
 
 Function Test-LatestScriptVersion {
@@ -2145,7 +2294,7 @@ Function Send-PAMLifecycleEmail {
     Write-Log -Type INF -Message "Attempting to send summary E-Mail..."
 
     try {
-        $subject = "CyberArk EPM LCD Lifecycle Utility [$($PSScriptInfo.Version.ToString())] VarSubjNewVer- Execution Summary | + VarSubjOnBoarded | - VarSubjOffBoarded | VarSubjStatusVarSubjMode"
+        $subject = "CyberArk EPM LCD Lifecycle Utility [$($PSScriptInfo.Version.ToString())] VarSubjNewVer- Execution Summary | + VarSubjOnBoarded | ~ VarSubjChangeQueued | - VarSubjOffBoarded | VarSubjStatusVarSubjMode"
         $body = @"
 Dear CyberArk Administrator,
 VarNewVer
@@ -2156,6 +2305,7 @@ Execution End   - VarExecutionEnded
 Elapsed [HH:MM:SS] - VarExecutionTime
 
 Total # OnboardedVarIsPlanned: VarOnBoarded VarOnboardingFailures
+Total # Change QueuedVarIsPlanned: VarChangeQueued VarChangeQueuingFailures
 Total # OffboardedVarIsPlanned: VarOffBoarded VarOffboardingFailures
 Total # SkippedVarIsPlanned: VarSkipped VarAnyFailures VarReportExists VarReviewLog VarAttachments
 
@@ -2176,8 +2326,10 @@ Your Friendly Neighborhood CyberArk Automation
         $body = $body.Replace("VarExecutionTime", ($EndTime - $StartTime).ToString().Substring(0, ($EndTime - $StartTime).ToString().IndexOf('.')))
 
         $onBoardSuccess = 0
+        $changeQueueSuccess = 0
         $offBoardSuccess = 0
         $onBoardFailures = 0
+        $changeQueueFailures = 0
         $offBoardFailures = 0
         $skipped = 0
         if (Test-Path -Path $ReportFilePath) {
@@ -2197,6 +2349,16 @@ Your Friendly Neighborhood CyberArk Automation
                     }
                     else {
                         $onBoardFailures++
+                        continue
+                    }
+                }
+                if ($result.Action -match "QueuingChange") {
+                    if ($result.Status -match "Reported|Success") {
+                        $changeQueueSuccess++
+                        continue
+                    }
+                    else {
+                        $changeQueueFailures++
                         continue
                     }
                 }
@@ -2223,13 +2385,19 @@ Your Friendly Neighborhood CyberArk Automation
         }
 
         $subject = $subject.Replace("VarSubjOnBoarded", $onBoardSuccess)
+        $subject = $subject.Replace("VarSubjChangeQueued", $changeQueueSuccess)
         $subject = $subject.Replace("VarSubjOffBoarded", $offBoardSuccess)
         $body = $body.Replace("VarOnBoarded", $onBoardSuccess)
+        $body = $body.Replace("VarChangeQueued", $changeQueueSuccess)
         $body = $body.Replace("VarOffBoarded", $offBoardSuccess)
         $body = $body.Replace("VarSkipped", $skipped)
 
         if ($onBoardFailures) {
             $body = $body.Replace("VarOnboardingFailures", "`nTotal # Onboarding Failures: $onBoardFailures")
+            $subject = $subject.Replace("VarSubjStatus", "FAILURE")
+        }
+        if ($changeQueueFailures) {
+            $body = $body.Replace("VarChangeQueuingFailures", "`nTotal # Change Queue Failures: $changeQueueFailures")
             $subject = $subject.Replace("VarSubjStatus", "FAILURE")
         }
         if ($offBoardFailures) {
@@ -2248,13 +2416,14 @@ Your Friendly Neighborhood CyberArk Automation
             $subject = $subject.Replace("VarSubjStatus", "FAILURE")
             $body = $body.Replace("VarCompletionStatus", "with errors.")
         }
-        elseif (!$onBoardFailures -and !$offBoardFailures) {
-            if (!$ReportOnlyMode -and ($onBoardSuccess -or $offBoardSuccess)) {
+        elseif (!$onBoardFailures -and !$offBoardFailures -and !$changeQueueFailures) {
+            if (!$ReportOnlyMode -and ($onBoardSuccess -or $offBoardSuccess -or $changeQueueSuccess)) {
                 $body = $body.Replace("VarAnyFailures", "`n`nThere were no reported lifecycle activity failures against PAM during this execution.")
             }
         }
 
         $body = $body.Replace("VarOnboardingFailures", "")
+        $body = $body.Replace("VarChangeQueuingFailures", "")
         $body = $body.Replace("VarOffboardingFailures", "")
         $body = $body.Replace("VarAnyFailures", "")
 
@@ -2401,14 +2570,14 @@ try {
     [List[PSCustomObject]]$EPMEndpoints, [List[PSCustomObject]]$ignoreList = Get-EPMComputers -SessionToken $EPMSessionInfo.EPMAuthenticationResult -ManagerURL $EPMSessionInfo.ManagerURL
 
     #Determine onboarding candidates
-    [List[PSCustomObject]]$onboardCandidates = Get-OnBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
+    [List[PSCustomObject]]$onboardCandidates, [List[PSCustomObject]]$changeCandidates = Get-OnBoardingAndChangeCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
 
     #Determine offboarding candidates
     [List[PSCustomObject]]$offboardCandidates = Get-OffBoardingCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints -IgnoreList $ignoreList
 
     #Printing report if in Report-Only mode, then exiting
     if ($ReportOnlyMode) {
-        Write-PAMLifecycleReport -OnboardCandidates $onboardCandidates -OffboardCandidates $offboardCandidates -IgnoreList $ignoreList
+        Write-PAMLifecycleReport -OnboardCandidates $onboardCandidates -OffboardCandidates $offboardCandidates -ChangeCandidates $changeCandidates -IgnoreList $ignoreList
         exit
     }
 
@@ -2418,7 +2587,17 @@ try {
             Add-PAMAccountsBulk -AccountList $onboardCandidates -SafePool $SafePool
         }
         else {
-            Write-Log -Type WRN -Message "Skipping onboarding activity per solution configuration"
+            Write-Log -Type WRN -Message "Skipping onboarding activity per solution configuration [`$SkipOnBoarding]"
+        }
+    }
+
+    #Changing Accounts in PAM
+    if ($changeCandidates) {
+        if (!$SkipOnBoarding) {
+            Invoke-PAMAccountsChange -AccountList $changeCandidates
+        }
+        else {
+            Write-Log -Type WRN -Message "Skipping change activity per solution configuration [`$SkipOnBoarding]"
         }
     }
 
@@ -2428,7 +2607,7 @@ try {
             Remove-PAMAccounts -AccountList $offboardCandidates
         }
         else {
-            Write-Log -Type WRN -Message "Skipping offboarding activity per solution configuration"
+            Write-Log -Type WRN -Message "Skipping offboarding activity per solution configuration [`$SkipOffBoarding]"
         }
     }
 }
