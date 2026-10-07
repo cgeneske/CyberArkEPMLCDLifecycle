@@ -1,14 +1,14 @@
 <#PSScriptInfo
 
-.VERSION 1.6.0
+.VERSION 2.0.1
 
 .GUID cf187d04-2d7d-48aa-94cf-80d4f33f6a68
 
 .AUTHOR @cgeneske
 
-.DESCRIPTION CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD)
+.DESCRIPTION Idira Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD)
 
-.COPYRIGHT Copyright (c) 2025 Craig Geneske
+.COPYRIGHT Copyright (c) 2026 Craig Geneske
 
 .LICENSEURI https://github.com/cgeneske/CyberArkEPMLCDLifecycle/blob/main/LICENSE.md 
 
@@ -20,19 +20,19 @@
 
 <#
 .SYNOPSIS
-CyberArk Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD).
+Idira Privilege Access Management (PAM) account lifecycle utility for Endpoint Privilege Management (EPM) Loosely Connected Devices (LCD).
 Latest solution and full README are available at https://github.com/cgeneske/CyberArkEPMLCDLifecycle 
 
 .DESCRIPTION
-Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to CyberArk's 
+Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to Idira's 
 Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concert with dialing in these least-privilege and application controls, 
-EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide 
+EPM can also seamlessly integrate with Idira's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide 
 agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
-The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an 
+The design of this utility is to automate the Idira PAM account lifecycle for one or more standardized local accounts, on endpoints with an 
 EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its 
 standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, 
-the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
+the Idira PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
 The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, 
 automatically determining and executing the needed onboarding, change queueing, and offboarding actions in PAM.  As new agents come online in EPM, 
@@ -41,28 +41,30 @@ attrition or proactive computer decommissioning flows, their local accounts will
 recent than its last password change in PAM (indicating a reimage activity has occurred) an immediate change activity is queued in PAM. 
 
 **This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of 
-any local accounts prior to conducting onboarding activities in CyberArk PAM!**
+any local accounts prior to conducting onboarding activities in Idira PAM!**
 
 Key Features:
 
+- EPM ISPSS Onboarding Ready!  Leverages the new and modern EPM Endpoints APIs
 - Complete lifecycle management (on/offboarding) for named local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate onboarding Safes for staging Windows, MacOS and Linux accounts
 - Supports onboarding across a pool of Safes to optimize per-Safe object counts and keep under desired limits
 - Supports a configurable offboarding delay to buffer against rapid turnover in the EPM database
+- Authoritative endpoint FQDN resolution supporting multi-domain and mixed Entra-joined EPM Sets
 - Aware of endpoints reimaged under the same hostname and will queue immediate password rotations in PAM
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
-- Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
-- **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
+- **No hard-coded secrets!**  Choice of Idira Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/offboarding, prior to go-live
 - Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
 
 Requirements:
 
-- CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+ OR CyberArk Privilege Cloud
-- CyberArk Endpoint Privilege Management (EPM) SaaS
-- PAM and EPM API credentials added to CyberArk PAM (CCP) or the Windows Credential Manager
+- Idira Privilege Access Management (PAM) Self-Hosted v11.6+ OR Idira Privilege Cloud
+- Idira Endpoint Privilege Management (EPM) SaaS with Identity fabric migrated to Identity Security Platform Shared Services (ISPSS)
+- EPM Agent Version 24.12.0 or newer
+- PAM and EPM API credentials added to Idira PAM (CCP) or the Windows Credential Manager
 - PowerShell v5 or greater
 
 For a complete description of all user assigned varaibles, see the GitHub README linked in the solution synopsis.
@@ -93,9 +95,12 @@ VERSION HISTORY:
 1.6.0   1/3/2025    - Added handling to immediately queue password rotations in PAM during the onboarding sequence, for endpoints which 
                       are detected as having been reimaged with the same hostname since last password change in PAM.  Improved accuracy of 
                       password expiration detection (EPM API) and EPM computer deduplication logic.
+2.0.1   9/10/2026   - Updated for EPM's onboarding to ISPSS, including use of the new EPM Endpoints APIs and deprecation of the legacy 
+                      Computers APIs.  New EPM Endpoints APIs now support retrieval of an endpoint's authoritative FQDN, allowing for 
+                      comprehensive coverage of mixed multi-domain or Entra ID-joined environments.  Script also updated with Idira rebranding.
 
 DISCLAIMER:
-This solution is provided as-is - it is not supported by CyberArk nor an official CyberArk solution.
+This solution is provided as-is - it is not supported by Palo Alto Networks nor an official Idira solution.
 #>
 
 using namespace System.Collections.Generic 
@@ -116,14 +121,13 @@ $SkipMac = $false
 $SkipLinux = $false
 
 #Auxillary Options
-$SendSummaryEmail = $true
+$SendSummaryEmail = $false
 $EmailWithSsl = $true
 $EmailFullReportAndLog = $false
 $VersionCheck = $true
-$ValidateDomainNamesDNS = $true
-$SkipIfNotInDNS = $false
 $IgnoreSSLCertErrors = $false
 $OffboardingDelayDays = 0
+$PopulateLogonDomain = $false
 
 #General Environment Details
 $EndpointUserNamesWin = "Administrator"
@@ -135,25 +139,25 @@ $OnboardingPlatformIdLinux = "UnixLooselyDevice"
 $OnboardingSafesWin = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $OnboardingSafesMac = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
 $OnboardingSafesLinux = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
-$EndpointDomainNames = ""
 $EndpointHostnameExclusionsRegex = ""
 $LCDPlatformSearchRegex = ".*"
 $SafeSearchList = "EPMLCDSTG01","EPMLCDSTG02","EPMLCDSTG03"
+$ISPSubdomain = "subdomain"
 $EPMSetIDs = ""
-$EPMRegion = "US"
+$EPMApiClientAppId = "" #If left blank, will leverage the generic ISP OIDC Trust App (/oauth2/platformtoken)
 $PAMHostname = "hostname"
 $SMTPRelayHostname = "hostname"
 $EmailFromAddress = "donotreply@domaindotcom"
 $EmailToAddress = "recipient@domaindotcom"
 
 #Source for PAM and EPM API credentials
-$APIUserSource = [APIUserSource]::CyberArkCCP 
+$APIUserSource = [APIUserSource]::IdiraCCP 
 
 #Populate When API User Source is [APIUserSource]::WinCredMgr
 $PAMCredTarget = "EPMLCD_Lifecycle_PAMAPI"
 $EPMCredTarget = "EPMLCD_Lifecycle_EPMAPI"
 
-#Populate when API User Source is [APIUserSource]::CyberArkCCP
+#Populate when API User Source is [APIUserSource]::IdiraCCP
 $CCPAuthType = [CCPAuthType]::OSUser
 $CertThumbprint = ""
 $PAMAccountName = "lifecycle_pam_api.pass"
@@ -180,8 +184,7 @@ $SafetyThresholdEPM = 0.10 # 10%
 $SafetyThresholdPAM = 0.10 # 10%
 
 $PAMPageSize = 1000 # Maximum is 1,000
-$EPMPageSize = 5000 # Maximum is 5,000
-$MaximumDNSFailures = 10
+$EPMPageSize = 1000 # Maximum is 1,000
 $StatusPingInterval = 15
 $MaxSafeObjects = 20000
 $WarnSafeObjects = 18000
@@ -198,6 +201,7 @@ else {
 }
 
 $PAMSessionToken = $null
+$EPMSessionToken = $null
 
 $PAMAuthLogonUrl = $PAMBaseURI + "/api/auth/CyberArk/Logon"
 $PAMAuthLogoffUrl = $PAMBaseURI + "/api/auth/Logoff"
@@ -205,9 +209,11 @@ $PAMAccountsUrl = $PAMBaseURI + "/api/Accounts"
 $PAMPlatformsUrl = $PAMBaseURI + "/api/Platforms"
 $PAMBulkAccountsUrl = $PAMBaseURI + "/api/bulkactions/accounts"
 
-$EPMAuthLogonUrl = "https://{0}.epm.cyberark.com/EPM/API/Auth/EPM/Logon"
+$ISPAuthLogonBaseUrl = "{0}/oauth2"
+$ISPPlatformDiscoveryUrl = "https://platform-discovery.cyberark.cloud/api/public/tenant-discovery?bySubdomain={0}&selectedServices=epm,identity_user_portal"
+$EPMManagerUrl = ""
 $EPMSetsListUrl = "/EPM/API/Sets"
-$EPMComputersUrl = "/EPM/API/Sets/{0}/Computers"
+$EPMMultipleEndpointDetailsDomainInfoUrl = "/EPM/API/Sets/{0}/endpoints/inventory/DomainInfo"
 
 #endregion
 
@@ -216,7 +222,7 @@ $EPMComputersUrl = "/EPM/API/Sets/{0}/Computers"
 
 enum APIUserSource {
     WinCredMgr
-    CyberArkCCP
+    IdiraCCP
 }
 
 enum CCPAuthType {
@@ -385,11 +391,11 @@ Function Write-Log {
     if ($Header) {
         if ([Environment]::UserInteractive) {
             $eventString = @"
-###############################################################################################################################
-#                                                                                                                             #
-#                                            CyberArk EPM LCD | Lifecycle Utility                                             #
-#                                                                                                                             #
-###############################################################################################################################
+##############################################################################################################################
+#                                                                                                                            #
+#                                             Idira EPM LCD | Lifecycle Utility                                              #
+#                                                                                                                            #
+##############################################################################################################################
 "@
         }
         else {
@@ -427,7 +433,7 @@ Function Invoke-ParseFailureResponse {
         The goal of this function is to provide a means of parsing those responses, in order to deliver more
         consistent, formatted, and meaningful feedback to stdout and/or a log file.
     .PARAMETER Component
-        The CyberArk component that is supplying the response failure.  This must be a member of the defined
+        The Idira component that is supplying the response failure.  This must be a member of the defined
         ValidateSet: PAM, CCP, EPM
     .PARAMETER Message
         An optional message to prepend to the error output, providing useful context to the raw response
@@ -480,7 +486,7 @@ Function Invoke-ParseFailureResponse {
 Function Get-APICredential {
     <#
     .SYNOPSIS
-        Retrieves a CyberArk API credential from the configured user source
+        Retrieves a Idira API credential from the configured user source
     .DESCRIPTION
         Retrieves a PAM or EPM API credential from the configured user source.  If the attempt is successful,
         the credential is serialized into a simple PSObject with a Username and Password property.
@@ -512,7 +518,7 @@ Function Get-APICredential {
     )
 
     switch ($APIUserSource) {
-        ([APIUserSource]::CyberArkCCP) {
+        ([APIUserSource]::IdiraCCP) {
             Write-Log -Type INF -Message "Attempting to retrieve the [$App] API credential from CCP..."
             $result = $null
             $CCPGetCredentialUrl = $null
@@ -614,9 +620,9 @@ Function Get-APICredential {
 Function Invoke-APIAuthentication {
     <#
     .SYNOPSIS
-        Authenticates to the CyberArk PAM or EPM APIs
+        Authenticates to the Idira PAM or EPM APIs
     .DESCRIPTION
-        Authenticates to the CyberArk PAM or EPM APIs via UN/PW authentication, with concurrency set true (for PAM)
+        Authenticates to the Idira PAM or EPM APIs via UN/PW authentication, with concurrency set true (for PAM)
         to support parallel script executions.  If authentication succeeds, the result is returned.  If
         authentication fails, an exception is thrown.
     .PARAMETER App
@@ -626,7 +632,8 @@ Function Invoke-APIAuthentication {
     .NOTES
         The following script-level variables are used: 
             - $PAMAuthLogonUrl
-            - $EPMAuthLogonUrl
+            - $ISPAuthLogonBaseUrl
+            - $EPMGetTenantUrl
             - $PAMHostname
         
         Author: Craig Geneske
@@ -646,31 +653,7 @@ Function Invoke-APIAuthentication {
     switch ($App) {
         "PAM" {
             if ($PAMHostname -match "\.cyberark\.cloud$") {
-                try{
-                    $IdentityTenantHost = ([System.Uri](Invoke-WebRequest -Uri "https://$PAMHostname" -MaximumRedirection 0 -ErrorAction Ignore).Headers.Location).Host
-                }
-                catch {
-                    #Gracefully handling stricter behavior for Invoke-WebRequest present in PowerShell v7.x Core
-                    if (($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::Found) -and ($_.Exception.Response.ReasonPhrase -match "Moved Temporarily")) {
-                        if ($_.Exception.Response.Headers.Location.Host) {
-                            $IdentityTenantHost = $_.Exception.Response.Headers.Location.Host
-                            $Error.Clear()
-                        }
-                        else {
-                            Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API, there was a problem trying to locate the CyberArk Identity Shared Services tenant"
-                            $APICred = $null
-                            $postBody = $null
-                            throw
-                        }
-                    }
-                    else {
-                        Invoke-ParseFailureResponse -Component $App -ErrorRecord $_ -Message "Failed to authenticate to [$App] API, there was a problem trying to locate the CyberArk Identity Shared Services tenant"
-                        $APICred = $null
-                        $postBody = $null
-                        throw
-                    }
-                }
-                $APIAuthUrl = "https://$IdentityTenantHost/oauth2/platformtoken"
+                $APIAuthUrl = $ISPAuthLogonBaseUrl + "/platformtoken"
                 $postBody = "grant_type=client_credentials&client_id=$([System.Web.HttpUtility]::UrlEncode($APICred.Username))&client_secret=$([System.Web.HttpUtility]::UrlEncode($APICred.Password))"
                 $contentType = "application/x-www-form-urlencoded"
             }
@@ -686,26 +669,28 @@ Function Invoke-APIAuthentication {
             Break
         }
         "EPM" {
-            $APIAuthUrl = $EPMAuthLogonUrl
-            $postBody = @{
-                Username = $APICred.Username
-                Password = $APICred.Password
-                ApplicationID = "EPM LCD Lifecycle"
-            } | ConvertTo-Json
-            $contentType = "application/json"
+            $APIAuthUrl = ""
+            if (!$EPMApiClientAppId){
+                $APIAuthUrl = $ISPAuthLogonBaseUrl + "/platformtoken"
+            }
+            else{
+                $APIAuthUrl = $ISPAuthLogonBaseUrl + "/token/$EPMApiClientAppId"
+            }
+            if (!$APIAuthUrl){
+                Write-Log -Type ERR -Message "Failed to construct the EPM API Authentication URL"
+                throw
+            }
+            Write-Log -Type INF -Message "--> Using OAuth Endpoint: [$APIAuthUrl]"
+            $postBody = "grant_type=client_credentials&client_id=$([System.Web.HttpUtility]::UrlEncode($APICred.Username))&client_secret=$([System.Web.HttpUtility]::UrlEncode($APICred.Password))"
+            $contentType = "application/x-www-form-urlencoded"
             Break
         }
     }
     
     try {
         $result = Invoke-RestMethod -Method Post -Uri $APIAuthUrl -Body $postBody -ContentType $contentType
-        if ($App -match "EPM") {
-            if ($result.IsPasswordExpired) {
-                throw "The password has expired"
-            }
-        }
         Write-Log -Type INF -Message "Successfully authenticated to [$App] API"
-        if ($App -match "PAM" -and $PAMHostname -match "\.cyberark\.cloud$") {
+        if ($App -match "EPM" -or ($App -match "PAM" -and $PAMHostname -match "\.cyberark\.cloud$")) {
             return "Bearer " + $result.access_token
         }
         else {
@@ -719,15 +704,15 @@ Function Invoke-APIAuthentication {
     finally {
         $APICred = $null
         $postBody = $null
-    } 
+    }
 }
 
 Function Invoke-APILogoff {
     <#
     .SYNOPSIS
-        Executes logoff from the CyberArk PAM API
+        Executes logoff from the Idira PAM API
     .DESCRIPTION
-        Logoff from the CyberArk PAM API, removing the Vault session.  This as an explicit step is 
+        Logoff from the Idira PAM API, removing the Vault session.  This as an explicit step is 
         important for immediately freeing the session, when API concurrency is in effect
     .EXAMPLE
         Invoke-APILogoff
@@ -776,19 +761,27 @@ Function Invoke-EPMRestMethod {
             return $result
         }
         catch {
-            if ($_.ErrorDetails.Message -match "too many calls") {
+            if ([int]$_.Exception.Response.StatusCode -eq 500 -or ` #Anticipating 429 some day, but presently rate limits throw 500
+                $_.ErrorDetails.Message -match "too many calls") {
                 $retryCount++
-                if ($retryCount -le $retryLimit) {
-                    Write-Log -Type WRN -Message "EPM API throttling detected, attempting retry [$retryCount] of [$retryLimit] in 15 seconds..."
-                    Start-Sleep -Seconds 15
-                }
+                Write-Log -Type WRN -Message "EPM API throttling detected, attempting retry [$retryCount] of [$retryLimit] in 15 seconds..."
+                Start-Sleep -Seconds 15
+                $Error.Clear()
+            }
+            elseif ([int]$_.Exception.Response.StatusCode -eq 401 -or `
+                    $_.ErrorDetails.Message -match "Platform authentication failure") {
+                $retryCount += 6
+                Write-Log -Type WRN -Message "EPM Session token has expired"
+                Set-Variable -Scope Script -Name EPMSessionToken -Value $(Invoke-APIAuthentication -App EPM)
+                $Parameters['Headers']['Authorization'] = $EPMSessionToken
+                $Error.Clear()
             }
             else {
                 throw
             }
         }
     }
-    throw "EPM API throttle retry limit has been reached"
+    throw "EPM API retry limit has been reached"
 }
 
 Function Invoke-PAMRestMethod {
@@ -810,27 +803,35 @@ Function Invoke-PAMRestMethod {
         [Parameter(Mandatory = $true)]
         [hashtable]$Parameters
     )
-    $authRetryLimit = 3
-    $authRetryCount = 0
-    while ($authRetryCount -le $authRetryLimit) {
+    $retryLimit = 20 #5 Minutes
+    $retryCount = 0
+    while ($retryCount -le $retryLimit) {
         try {
             $result = Invoke-RestMethod @Parameters
             return $result
         }
         catch {
-            if ($_.ErrorDetails.Message -match "The session token is missing, invalid or expired" -or `
-                $_.ErrorDetails.Message -match "User was automatically logged off from Vault") {
-                    $authRetryCount++
-                    Write-Log -Type WRN -Message "PAM Session token has expired"
-                    Set-Variable -Scope Script -Name PAMSessionToken -Value $(Invoke-APIAuthentication -App PAM)
-                    $Parameters['Headers']['Authorization'] = $PAMSessionToken
+            if ([int]$_.Exception.Response.StatusCode -eq 429){ #Too many calls
+                $retryCount++
+                Write-Log -Type WRN -Message "PAM API throttling detected, attempting retry [$retryCount] of [$retryLimit] in 15 seconds..."
+                Start-Sleep -Seconds 15
+                $Error.Clear()
             }
+            elseif ([int]$_.Exception.Response.StatusCode -eq 401 -or `
+                    $_.ErrorDetails.Message -match "The session token is missing, invalid or expired" -or `
+                    $_.ErrorDetails.Message -match "User was automatically logged off from Vault") {
+                $retryCount += 6
+                Write-Log -Type WRN -Message "PAM Session token has expired"
+                Set-Variable -Scope Script -Name PAMSessionToken -Value $(Invoke-APIAuthentication -App PAM)
+                $Parameters['Headers']['Authorization'] = $PAMSessionToken
+                $Error.Clear()
+        }
             else {
                 throw
             }
         }
     }
-    throw "PAM API maximum re-authentication attempts has been reached"
+    throw "PAM API retry limit has been reached"
 }
 
 Function Get-PAMActiveLCDPlatforms {
@@ -895,7 +896,7 @@ Function Get-PAMActiveLCDPlatforms {
             return $platformList
         }
         else {
-            throw "There are no active LCD platforms based on the defined criteria.  Please check Platform status in CyberArk and try again."
+            throw "There are no active LCD platforms based on the defined criteria.  Please check Platform status in Idira and try again."
         }
     }
     catch {
@@ -1060,42 +1061,37 @@ Function Get-PAMLCDAccounts {
     return $PAMAccountsList, $safePool
 }
 
-Function Get-EPMComputers {
+Function Get-EPMEndpoints {
     <#
     .SYNOPSIS
-        Gets all computers from the designated EPM sets and qualifies them (FQDN).
+        Gets all endpoints from the designated EPM sets and qualifies them (FQDN).
     .DESCRIPTION
-        Gets all computers from the designated EPM sets, qualifies them (FQDN), and returns
+        Gets all endpoints from the designated EPM sets, qualifies them (FQDN), and returns
         both the list of qualifed endpoints as well as the ignore list (as per configuration).
     .PARAMETER SessionToken
         Session token that was received from the EPM Logon endpoint
     .PARAMETER ManagerURL
         The EPM Server URL used for CRUD APIs as received from the EPM Logon endpoint
     .EXAMPLE
-        $EPMEndpoints, $ignoreList = Get-EPMComputers -SessionToken "Caz2QE%2b%2b8uVbTecoGMBa1Dxr7h..." -ManagerURL "https://na123.epm.cyberark.com"
+        $EPMEndpoints, $ignoreList = Get-EPMEndpoints -ManagerURL "https://na123.epm.cyberark.com"
     .NOTES
         The following script-level variables are used:
-            - $EndpointDomainNames
             - $EndpointHostnameExclusionsRegex
             - $EPMSetIDs
             - $EPMSetsListUrl
-            - $EPMComputersUrl
-            - $ValidateDomainNamesDNS
-            - $SkipIfNotInDNS
-            - $MaximumDNSFailures
+            - $EPMSessionToken
+            - $EPMMultipleEndpointDetailsDomainInfoUrl
 
         Author: Craig Geneske
     #>
     Param(
         [Parameter(Mandatory = $true)]
-        [string]$SessionToken,
-
-        [Parameter(Mandatory = $true)]
         [string]$ManagerURL
     )
 
     $confirmedSets = @()
-    [List[PSCustomObject]]$EPMComputerList = @()
+    [List[PSCustomObject]]$preQualifiedEndpoints = @()
+    [List[PSCustomObject]]$qualifiedEndpoints = @()
     [List[PSCustomObject]]$IgnoreList = @()
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $pageCounter = 0
@@ -1107,7 +1103,7 @@ Function Get-EPMComputers {
         $ParamsHt = @{
             Method = "Get"
             Uri = ($ManagerURL + $EPMSetsListUrl)
-            Headers = @{Authorization = "basic $($SessionToken)"}
+            Headers = @{Authorization = $EPMSessionToken}
             ContentType = "application/json"
         }
         $result = Invoke-EPMRestMethod -Parameters $ParamsHt
@@ -1140,172 +1136,132 @@ Function Get-EPMComputers {
                 $confirmedSets += $set
             }
         }
-        Write-Log -Type INF -Message "Getting all EPM Computers (this may take a while)..."
+        Write-Log -Type INF -Message "Getting all EPM Endpoints (this may take a while)..."
+
         foreach ($set in $confirmedSets) {
-            Write-Log -Type INF -Message "---> Getting computers for set [$($set.Name) {$($set.Id)}]..."
-            $computersUri = ($ManagerURL + ($EPMComputersUrl -f $set.Id) + "?limit=$EPMPageSize")
+            Write-Log -Type INF -Message "---> Getting endpoints for set [$($set.Name) {$($set.Id)}]..."
+            $endpointsUri = ($ManagerURL + ($EPMMultipleEndpointDetailsDomainInfoUrl -f $set.Id) + "?limit=$EPMPageSize")
             $offset = 0
+            $pageCount = 0
             do {
                 if ($timer.elapsed.totalseconds -ge $StatusPingInterval) {
-                    Write-Log -Type INF -Message "------> Status Ping: [$computersCounter] computers processed in [$pageCounter] pages so far"
+                    Write-Log -Type INF -Message "------> Status Ping: [$computersCounter] endpoints processed in [$pageCounter] pages so far"
                     $timer.Restart()
                 }
                 $result = $null
                 $paramsHt = $null
                 $paramsHt = @{
-                    Method = "Get"
-                    Uri = $computersUri
-                    Headers = @{Authorization = "basic $($SessionToken)"}
+                    Method = "Post"
+                    Uri = $endpointsUri
+                    Headers = @{Authorization = $EPMSessionToken}
                     ContentType = "application/json"
                 }
                 $result = Invoke-EPMRestMethod -Parameters $ParamsHt
-                foreach ($computer in $result.Computers) {  
-                    #At present, EPM API returns a Platform of "Unknown" for Linux computers.  
-                    #Transforming these to a Platform of "Linux". 
-                    if ($computer.Platform -eq "Unknown") {
-                        $computer.Platform = "Linux"
+                foreach ($endpoint in $result) {  
+                    if ($endpoint.inventory.domainInfo.computerNameDnsFullyQualified) {
+                        $compName = $endpoint.inventory.domainInfo.computerNameDnsFullyQualified
+                    }
+                    else {
+                        $compName = $endpoint.name
                     }
 
-                    if (($computer.Platform -eq "MacOS" -and $SkipMac) -or `
-                        ($computer.Platform -eq "Windows" -and $SkipWindows) -or `
-                        ($computer.Platform -eq "Linux" -and $SkipLinux)) {
-                            $ignoreList.Add($computer)
-                            Add-Content -Path $ReportFilePath -Value "N/A,$($computer.ComputerName),$($computer.Platform),Inventory,Skipped,Lifecycle for this platform is disabled per the run configuration" -ErrorAction SilentlyContinue *> $null
+                    if (($endpoint.platform -eq "MacOS" -and $SkipMac) -or `
+                        ($endpoint.platform -eq "Windows" -and $SkipWindows) -or `
+                        ($endpoint.platform -eq "Linux" -and $SkipLinux)) {
+                            $ignoreList.Add($endpoint)
+                            Add-Content -Path $ReportFilePath -Value "N/A,$compName,$($endpoint.Platform),Inventory,Skipped,Lifecycle for this platform is disabled per the run configuration" -ErrorAction SilentlyContinue *> $null
                             continue
                     }
 
+                    if ($EndpointHostnameExclusionsRegex) {
+                        $matchFound = $false
+                        foreach ($pattern in $EndpointHostnameExclusionsRegex) {
+                            if ($compName -match $pattern) {
+                                $matchFound = $true
+                                $ignoreList.Add($comp)
+                                Add-Content -Path $ReportFilePath -Value "N/A,$compName,$($endpoint.Platform),Inventory,Skipped,The computer name in EPM matches a hostname exclusion pattern" -ErrorAction SilentlyContinue *> $null
+                                break
+                            }
+                        }
+                        if ($matchFound) {
+                            continue
+                        }
+                    }
+
                     $computersCounter++
-                    $EPMComputerList.Add($computer)
+
+                    $preQualifiedEndpoints.Add([PSCustomObject]@{
+                        EndpointName = $compName
+                        Platform = $endpoint.platform
+                        InstallTime = $endpoint.installTime
+                    })
                 }
-                if ($result.Computers.Count -eq $EPMPageSize) {
+                #PwSH 5 Compatibility
+                if ([string]::IsNullOrEmpty($result.Count)) {
+                    $pageCount = 1
+                } 
+                else {
+                    $pageCount = $result.Count
+                }
+                if ($pageCount -eq $EPMPageSize) {
                     $offset += $EPMPageSize
-                    $computersUri = ($ManagerURL + ($EPMComputersUrl -f $set.Id) + "?limit=$EPMPageSize&offset=$offset")
+                    $endpointsUri = ($ManagerURL + ($EPMMultipleEndpointDetailsDomainInfoUrl -f $set.Id) + "?limit=$EPMPageSize&offset=$offset")
                 }
                 $pageCounter++
             }
-            while ($result.Computers.Count -eq $EPMPageSize)
+            while ($pageCount -eq $EPMPageSize)
         }
-        Write-Log -Type INF -Message "Retrieved [$($EPMComputerList.Count)] EPM Computers"
+        Write-Log -Type INF -Message "Retrieved [$($preQualifiedEndpoints.Count)] EPM endpoints"
     }
     catch {
-        Invoke-ParseFailureResponse -Component "EPM" -ErrorRecord $_ -Message "Failed to get all EPM computers"
+        Invoke-ParseFailureResponse -Component "EPM" -ErrorRecord $_ -Message "Failed to get all EPM endpoints"
         throw
     }
     finally {
         $timer.Reset()
         $timer = $null
     }
-
-    [List[PSCustomObject]]$preQualifiedComps = @()
-    [List[PSCustomObject]]$qualifiedComps = @()
-    Write-Log -Type INF -Message "Qualifying EPM computers with domain names provided and deduplicating the results..."
-    foreach($comp in $EPMComputerList) {
-        $finalSuffix = ""
-        if ($ValidateDomainNamesDNS -and $comp.Platform -eq "Windows") {
-            $countDNSIssues = 0
-            $dnsNameFound = $false
-            foreach ($domainName in $EndpointDomainNames) {
-                try {
-                    Resolve-DnsName -Name ($comp.ComputerName + "." + $domainName) -ErrorAction Stop *> $null
-                    $finalSuffix = "." + $domainName
-                    $dnsNameFound = $true
-                    break
-                }
-                catch {
-                    if ($_.Exception.Message -match "DNS name does not exist") {
-                        $Error.Clear()
-                        continue
-                    }
-                    else {
-                        if ($countDNSIssues -ge $MaximumDNSFailures) {
-                            Write-Log -Type ERR -Message "Maximum general DNS failures reached [$MaximumDNSFailures]."
-                            throw
-                        }
-                        Write-Log -Type WRN -Message "Potential issue with DNS resolution, skipping candidacy for [$($comp.ComputerName)] --> $($_.Exception.Message)"
-                        Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),$($comp.Platform),Inventory,Skipped,Issue with DNS resolution --> $($_.Exception.Message.Replace(",",";"))" -ErrorAction SilentlyContinue *> $null
-                        $countDNSIssues++
-                        $ignoreList.Add($comp)
-                        $Error.Clear()
-                        continue
-                    }
-                }
-            }
-            if (!$dnsNameFound) {
-                if ($SkipIfNotInDNS) {
-                    Write-Log -Type WRN -Message "Domain name not found for [$($comp.ComputerName)], skipping candidacy per the configuration"
-                    Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),$($comp.Platform),Inventory,Skipped,DNS domain name not found - skipping per run configuration" -ErrorAction SilentlyContinue *> $null
-                    $ignoreList.Add($comp)
-                    continue
-                }
-            }
-        }
-        elseif ($EndpointDomainNames -and $comp.Platform -eq "Windows") {
-            $finalSuffix = "." + $EndpointDomainNames
-        }
-        
-        $comp.ComputerName = $comp.ComputerName + $finalSuffix
-
-        if ($EndpointHostnameExclusionsRegex) {
-            $matchFound = $false
-            foreach ($pattern in $EndpointHostnameExclusionsRegex) {
-                if ($comp.ComputerName -match $pattern) {
-                    $matchFound = $true
-                    $ignoreList.Add($comp)
-                    Add-Content -Path $ReportFilePath -Value "N/A,$($comp.ComputerName),$($comp.Platform),Inventory,Skipped,The computer name in EPM matches a hostname exclusion pattern" -ErrorAction SilentlyContinue *> $null
-                    break
-                }
-            }
-            if ($matchFound) {
-                continue
-            }
-        }
-
-        $preQualifiedComps.Add([PSCustomObject]@{
-            ComputerName = $comp.ComputerName
-            Platform = $comp.Platform
-            InstallTime = $comp.InstallTime
-        })
-        
-    }
+    
+    Write-Log -Type INF -Message "Creating EPM endpoints index and deduplicating the results..."
     
     #Create EPM Computers Index
-    $EPMComputersIndex = @{}
-    foreach ($comp in $preQualifiedComps) {
-        $key = $comp.ComputerName
-        $data = $EPMComputersIndex[$key]
+    $EPMEndpointsIndex = @{}
+    foreach ($endpoint in $preQualifiedEndpoints) {
+        $key = $endpoint.EndpointName
+        $data = $EPMEndpointsIndex[$key]
         if ($data -is [Collections.ArrayList]) {
-            $data.Add($comp) > $null
+            $data.Add($endpoint) > $null
         }
         elseif ($data) {
-            $EPMComputersIndex[$key] = [Collections.ArrayList]@($data, $comp)
+            $EPMEndpointsIndex[$key] = [Collections.ArrayList]@($data, $endpoint)
         }
         else {
-            $EPMComputersIndex[$key] = $comp
+            $EPMEndpointsIndex[$key] = $endpoint
         }
     }
 
-    $comp = $null
+    $endpoint = $null
 
-    foreach ($row in $EPMComputersIndex.GetEnumerator()) {
+    foreach ($row in $EPMEndpointsIndex.GetEnumerator()) {
         if ($row.Value -is [Collections.ArrayList]) {
-            #Duplicates for this ComputerName exist in EPM, adding only the one with the latest install time
+            #Duplicates for this EndpointName exist in EPM, adding only the one with the latest install time
             $dateRef = [datetime]::MinValue
-            foreach ($comp in $row.Value) {
-                if ([datetime]$comp.InstallTime -gt $dateRef) {
-                    $latestComp = $comp
-                    $dateRef = [datetime]$comp.InstallTime
+            foreach ($endpoint in $row.Value) {
+                if ([datetime]$endpoint.InstallTime -gt $dateRef) {
+                    $latestEndpoint = $endpoint
+                    $dateRef = [datetime]$endpoint.InstallTime
                 } 
             }
-            $qualifiedComps.Add($latestComp)
+            $qualifiedEndpoints.Add($latestEndpoint)
         }
         else {
-            #No duplicates for this ComputerName exist in EPM
-            $qualifiedComps.Add($row.Value)
+            #No duplicates for this EndpointName exist in EPM
+            $qualifiedEndpoints.Add($row.Value)
         }
     }
-    Write-Log -Type INF -Message "EPM computer qualification and deduplication complete.  Using [$($qualifiedComps.Count)] unique computer names out of [$($EPMComputerList.Count)] total."
-    Compare-ChangeFactorAndUpdate -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value $qualifiedComps.Count
-    return $qualifiedComps, $ignoreList
+    Write-Log -Type INF -Message "EPM endpoint qualification and deduplication complete.  Using [$($qualifiedEndpoints.Count)] unique computer names out of [$($preQualifiedEndpoints.Count)] total."
+    Compare-ChangeFactorAndUpdate -PropertyName EPMComputers -Threshold $SafetyThresholdEPM -Value $qualifiedEndpoints.Count
+    return $qualifiedEndpoints, $ignoreList
 }
 
 Function Add-PAMAccountsBulk {
@@ -1372,13 +1328,21 @@ Function Add-PAMAccountsBulk {
             }
             $count = 1
         }
-        $tempList.accountsList.Add([PSCustomObject]@{
+        $accountObj = ([PSCustomObject]@{
             userName = $account.UserName
             address = $account.Address
             secretType = "password"
             safeName = $safename
             platformId = $platformId
         })
+        #If Windows, append the LogonDomain with short hostname to streamline PSM use
+        if ($PopulateLogonDomain -and $account.Platform -match "Windows") {
+            $accountObj | Add-Member -MemberType NoteProperty -Name "platformAccountProperties" -Value ([PSCustomObject]@{
+                LogonDomain = $account.Address.Split('.')[0]
+            })
+        }
+        $tempList.accountsList.Add($accountObj)
+        $accountObj = $null
         #If Windows, MacOS, and/or Linux safe pools contain the same Safe, we need to increment the account counter in all to keep onboarding distribution even
         foreach ($safeGroup in $SafePool.GetEnumerator()) {
             if ($safeGroup.Value[$safeName] -ge 0) {
@@ -1392,7 +1356,7 @@ Function Add-PAMAccountsBulk {
     foreach ($chunk in $jobChunks) {
         $jobChunksJson.Add([PSCustomObject]@{
             Total = $chunk.accountsList.Count
-            Chunk = $($chunk | ConvertTo-Json -Compress)
+            Chunk = $($chunk | ConvertTo-Json -Compress -Depth 5)
         })
     }
     Write-Log -Type INF -Message "[$($jobChunksJson.Count)] onboarding job chunks created"
@@ -1485,6 +1449,7 @@ Function Add-PAMAccountsBulk {
                             switch ($account.PlatformId) {
                                 $onboardingPlatformIdWin { $platform = "Windows"; Break }
                                 $onboardingPlatformIdMac { $platform = "MacOS"; Break }
+                                $onboardingPlatformIdLinux { $platform = "Linux"; Break }
                             }
                             Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),$platform,Onboarding,Success," -ErrorAction SilentlyContinue *> $null
                             Update-DatFile -PropertyName PAMAccounts -Value 1 -Append
@@ -1494,6 +1459,7 @@ Function Add-PAMAccountsBulk {
                             switch ($account.PlatformId) {
                                 $onboardingPlatformIdWin { $platform = "Windows"; Break }
                                 $onboardingPlatformIdMac { $platform = "MacOS"; Break }
+                                $onboardingPlatformIdLinux { $platform = "Linux"; Break }
                             }
                             Add-Content -Path $ReportFilePath -Value "$($account.Username),$($account.Address),$platform,Onboarding,Failed,$($account.error.Replace(",", " "))" -ErrorAction SilentlyContinue *> $null
                         }
@@ -1640,23 +1606,6 @@ Function Confirm-ScriptVariables {
 
     Write-Log -Type INF -Message "Validating Script Variables..."
 
-    if ($ValidateDomainNamesDNS) {
-        if (!$EndpointDomainNames) {
-            Set-Variable -Name "EndpointDomainNames" -Scope Script -Value $((Get-DNSClientGlobalSetting).SuffixSearchList)
-            if (!$EndpointDomainNames) {
-                Write-Log -Type ERR -Message "Ambiguous operation.  ValidateDomainNamesDNS is set, but no EndpointDomainNames are specified, and DNS Client Suffix Search List is Empty"
-                throw
-            }
-        }
-    
-    }
-    else {
-        if (!($EndpointDomainNames.Count -eq 1 -or [String]::IsNullOrEmpty($EndpointDomainNames))) {
-            Write-Log -Type ERR -Message "Ambiguous operation.  ValidateDomainNamesDNS is not set and more than one EndpointDomainNames are defined"
-            throw
-        }
-    }
-
     try {
         foreach ($pattern in $LCDPlatformSearchRegex) {
             [regex]::Match("", $pattern) *> $null
@@ -1672,7 +1621,7 @@ Function Confirm-ScriptVariables {
         throw
     }
 
-    if ($APIUserSource -eq [APIUserSource]::CyberArkCCP) {
+    if ($APIUserSource -eq [APIUserSource]::IdiraCCP) {
         if ($CCPAuthType -isnot [CCPAuthType]) {
             Write-Log -Type ERR -Message "CCPAuthType is not set to a valid value, please correct this and try again"
             throw 
@@ -1683,29 +1632,41 @@ Function Confirm-ScriptVariables {
         Set-Variable -Name "SafeSearchlist" -Scope Script -Value ""
     }
 
-    if ($EPMRegion) {
-        $regionList = @('US', 'AU', 'CA', 'EU', 'IN', 'IT', 'JP', 'SG', 'UK', 'BETA')
-        $validRegion = $false
-        foreach ($region in $regionList) {
-            if ($EPMRegion -match "^$region$") {
-                if ($region -match "^US$") {
-                    Set-Variable -Name "EPMAuthLogonUrl" -Scope Script -value ($EPMAuthLogonUrl -f "login")
+    if (!$ISPSubdomain) {
+        Write-Log -Type ERR -Message "ISPSubdomain is empty, you must specify the subdomain for your Idira ISP tenant (e.g. mycompany in mycompany.cyberark.cloud)"
+        throw
+    }
+    else{
+        try{
+            $ispServicesResult = Invoke-RestMethod -Uri ($ISPPlatformDiscoveryUrl -f $ISPSubdomain) -Method Get -UseBasicParsing -ErrorAction Stop
+            $identityFound = $false
+            $epmFound = $false
+            foreach ($service in $ispServicesResult.services) {
+                if ($service.service_name -match "identity_user_portal")
+                {
+                    $identityFound = $true
+                    Set-Variable -Name "ISPAuthLogonBaseUrl" -Scope Script -Value ($ISPAuthLogonBaseUrl -f $service.endpoints.api)
+                    continue
                 }
-                else {
-                    Set-Variable -Name "EPMAuthLogonUrl" -Scope Script -value ($EPMAuthLogonUrl -f $region.ToLower())
+                if ($service.service_name -match "epm") {
+                    $epmFound = $true
+                    Set-Variable -Name "EPMManagerUrl" -Scope Script -Value $service.endpoints.ui
+                    continue
                 }
-                $validRegion = $true
-                break
+            }
+            if (!$identityFound) {
+                Write-Log -Type ERR -Message "Failed to validate script variables, there was a problem trying to locate the Idira Identity Shared Services tenant.  Response did not contain expected information."
+                throw
+            }
+            if (!$epmFound) {
+                Write-Log -Type ERR -Message "Failed to validate script variables, there was a problem trying to locate the EPM API endpoint.  Response did not contain expected information."
+                throw
             }
         }
-        if (!$validRegion) {
-            Write-Log -Type ERR -Message "EPMRegion is not set to a valid value, you must specify one of the following: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
+        catch {
+            Write-Log -Type ERR -Message "Failed to validate script variables, there was a problem trying to locate the Idira Identity Security Platform tenant details --> $($_.Exception.Message)"
             throw
         }
-    }
-    else {
-        Write-Log -Type ERR -Message "EPMRegion is empty, you must specify one of the following: US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA"
-        throw
     }
     
     if (!$EnableSafety) {
@@ -1925,7 +1886,7 @@ Function Get-OnBoardingAndChangeCandidates {
             "MacOS" { $usernameList = $EndpointUserNamesMac; Break}
             "Linux" { $usernameList = $EndpointUserNamesLinux; Break}
         }
-        foreach ($account in $PAMAccountsIndex[$comp.ComputerName]) {
+        foreach ($account in $PAMAccountsIndex[$comp.EndpointName]) {
             if ($usernameList -contains $account.Username -and `
                 ($account.LastChanged -lt [datetime]$comp.InstallTime) -and `
                 ($account.Status -notmatch "^inProcess$" -and $account.AutoMgmtEnabled)) {
@@ -1937,7 +1898,7 @@ Function Get-OnBoardingAndChangeCandidates {
 
         foreach ($username in $usernameList) {
             $userNameExistsInPAM = $false
-            foreach ($account in $PAMAccountsIndex[$comp.ComputerName]) {
+            foreach ($account in $PAMAccountsIndex[$comp.EndpointName]) {
                 if ($account.userName -match "^$([regex]::escape($username))$") {
                     $userNameExistsInPAM = $true
                     break
@@ -1945,12 +1906,12 @@ Function Get-OnBoardingAndChangeCandidates {
             }
             if (!$userNameExistsInPAM) {
                 if ($SkipOnboarding) {
-                    Add-Content -Path $ReportFilePath -Value "$username,$($comp.ComputerName),$($comp.Platform),Onboarding,Skipped,Account would have been onboarded however onboarding is disabled per the current run configuration." -ErrorAction SilentlyContinue *> $null
+                    Add-Content -Path $ReportFilePath -Value "$username,$($comp.EndpointName),$($comp.Platform),Onboarding,Skipped,Account would have been onboarded however onboarding is disabled per the current run configuration." -ErrorAction SilentlyContinue *> $null
                     continue
                 }
                 $onboardCandidates.Add([PSCustomObject]@{
                     Username = $username
-                    Address = $comp.ComputerName
+                    Address = $comp.EndpointName
                     Platform = $comp.Platform
                 })
             }
@@ -2001,7 +1962,7 @@ Function Get-OffBoardingCandidates {
     #Create EPM Computers Index
     $EPMComputersIndex = @{}
     foreach ($comp in $EPMEndpoints) {
-        $key = $comp.ComputerName
+        $key = $comp.EndpointName
         $data = $EPMComputersIndex[$key]
         if ($data -is [Collections.ArrayList]) {
             $data.Add($comp) > $null
@@ -2017,7 +1978,7 @@ Function Get-OffBoardingCandidates {
     #Create Ignore List Index
     $IgnoreListIndex = @{}
     foreach ($comp in $IgnoreList) {
-        $key = $comp.ComputerName
+        $key = $comp.EndpointName
         $data = $IgnoreListIndex[$key]
         if ($data -is [Collections.ArrayList]) {
             $data.Add($comp) > $null
@@ -2294,11 +2255,11 @@ Function Send-PAMLifecycleEmail {
     Write-Log -Type INF -Message "Attempting to send summary E-Mail..."
 
     try {
-        $subject = "CyberArk EPM LCD Lifecycle Utility [$($PSScriptInfo.Version.ToString())] VarSubjNewVer- Execution Summary | + VarSubjOnBoarded | ~ VarSubjChangeQueued | - VarSubjOffBoarded | VarSubjStatusVarSubjMode"
+        $subject = "Idira EPM LCD Lifecycle Utility [$($PSScriptInfo.Version.ToString())] VarSubjNewVer- Execution Summary | + VarSubjOnBoarded | ~ VarSubjChangeQueued | - VarSubjOffBoarded | VarSubjStatusVarSubjMode"
         $body = @"
-Dear CyberArk Administrator,
+Dear Idira Administrator,
 VarNewVer
-An execution of the CyberArk EPM LCD Lifecycle UtilityVarReportOnly has completed VarCompletionStatus
+An execution of the Idira EPM LCD Lifecycle UtilityVarReportOnly has completed VarCompletionStatus
 
 Execution Start - VarExecutionStart
 Execution End   - VarExecutionEnded
@@ -2310,7 +2271,7 @@ Total # OffboardedVarIsPlanned: VarOffBoarded VarOffboardingFailures
 Total # SkippedVarIsPlanned: VarSkipped VarAnyFailures VarReportExists VarReviewLog VarAttachments
 
 Regards,
-Your Friendly Neighborhood CyberArk Automation
+Your Friendly Neighborhood Idira Automation
 "@
         if ($NewVersionAvailable) {
             $subject = $subject.Replace("VarSubjNewVer", "(New Ver. Available!) ")
@@ -2454,7 +2415,7 @@ Your Friendly Neighborhood CyberArk Automation
             $subject = $subject.Replace("VarSubjMode", "")
             $body = $body.Replace("VarReportOnly", "")
             $body = $body.Replace("VarIsPlanned", " (Actual)")
-            $body = $body.Replace("VarWouldHave", "")
+            $body = $body.Replace("VarWouldHave", "")            
         }
     }
     catch {
@@ -2566,8 +2527,8 @@ try {
     [List[PSCustomObject]]$PAMAccounts, [hashtable]$SafePool = Get-PAMLCDAccounts -LCDPlatformList $LCDPlatforms
 
     #Get all EPM Computers
-    $EPMSessionInfo = Invoke-APIAuthentication -App EPM
-    [List[PSCustomObject]]$EPMEndpoints, [List[PSCustomObject]]$ignoreList = Get-EPMComputers -SessionToken $EPMSessionInfo.EPMAuthenticationResult -ManagerURL $EPMSessionInfo.ManagerURL
+    Set-Variable -Scope Script -Name EPMSessionToken -Value $(Invoke-APIAuthentication -App EPM)
+    [List[PSCustomObject]]$EPMEndpoints, [List[PSCustomObject]]$ignoreList = Get-EPMEndpoints -ManagerURL $EPMManagerUrl
 
     #Determine onboarding candidates
     [List[PSCustomObject]]$onboardCandidates, [List[PSCustomObject]]$changeCandidates = Get-OnBoardingAndChangeCandidates -PAMAccounts $PAMAccounts -EPMEndpoints $EPMEndpoints
@@ -2612,7 +2573,7 @@ try {
     }
 }
 catch {
-    #Nothing to do but maintaining catch block to suppress error output as this is processed and formatted lower in the call stack
+    #Nothing to do but maintaining catch block to suppress error output as this should be processed and formatted lower in the call stack
     #Write-Log -Type ERR -Message $_.Exception.Message
 } 
 finally {
@@ -2630,7 +2591,7 @@ finally {
         Invoke-APILogoff
     }
 
-    $EPMSessionInfo = $null
+    $EPMSessionToken = $null
     $PAMSessionToken = $null
 
     #Deleting report file if nothing was written to it
