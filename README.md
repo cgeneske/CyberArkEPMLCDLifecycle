@@ -1,17 +1,18 @@
-# CyberArk EPM LCD Lifecycle Utility
+# Idira EPM LCD Lifecycle Utility
 
-Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to CyberArk's Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concert with dialing in these least-privilege and application controls, EPM can also seamlessly integrate with CyberArk's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
+Organizations seeking to reduce and eliminate privilege escalation abuse, credential theft, and ransomware threats often turn to Idira's Endpoint Privilege Manager (EPM) for its effective suite of controls.  In concert with dialing in these least-privilege and application controls, EPM can also seamlessly integrate with Idira's Self-Hosted Privilege Access Management (PAM) and Privilege Cloud SaaS platforms, to provide agent-enhanced, loosely-connected, credential management capabilities for their local administrator accounts.
 
-The design of this utility is to automate the CyberArk PAM account lifecycle for one or more standardized local accounts, on endpoints with an EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the CyberArk PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
+The design of this utility is to automate the Idira PAM account lifecycle for one or more standardized local accounts, on endpoints with an EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, the Idira PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
 
 The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, automatically determining and executing the needed onboarding, change queueing, and offboarding actions in PAM.  As new agents come online in EPM, one or more standardized local accounts will be onboarded to PAM.  Likewise, as endpoints are pruned from EPM, either through organic inactivity-based attrition or proactive computer decommissioning flows, their local accounts will be offboarded from PAM.  And if an EPM agent's install time is more recent than its last password change in PAM (indicating a reimage activity has occurred) an immediate change activity is queued in PAM.  
 
-**This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting onboarding activities in CyberArk PAM!**
+**This utility does not scan, discover, nor communicate directly with loosely-connected endpoints in any way.  It will NOT validate the existence of any local accounts prior to conducting onboarding activities in Idira PAM!**
 
->**Note**: This solution is provided as-is, it is not supported by CyberArk nor an official CyberArk solution
+>**Note**: This solution is provided as-is, it is not supported by Palo Alto Networks nor an official Idira solution
 
 ## Features
 
+- EPM ISPSS Onboarding Ready!  Leverages the new and modern EPM Endpoints APIs
 - Complete lifecycle management (on/offboarding) of standardized local accounts in PAM that are based on LCD
 - Designed to be run interactively or via Scheduled Task from a central endpoint
 - Supports separate onboarding Safes for staging Windows, MacOS and Linux accounts
@@ -19,8 +20,8 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 - Supports a configurable offboarding delay to buffer against rapid turnover in the EPM database
 - Aware of endpoints reimaged under the same hostname and will queue immediate password rotations in PAM
 - Flexible Safe and Platform scoping provides continuous management throughout the account lifecycle
-- Dynamic FQDN discovery via DNS for "mixed" EPM Sets that contain endpoints with varied domain memberships
-- **No hard-coded secrets!**  Choice of CyberArk Central Credential Provider (CCP) or Windows Credential Manager
+- Authoritative endpoint FQDN resolution supporting multi-domain and mixed Entra-joined EPM Sets
+- **No hard-coded secrets!**  Choice of Idira Central Credential Provider (CCP) or Windows Credential Manager
 - Implementation of CCP supports OS User (IWA), Client Certificate, and Allowed Machines authentication
 - Non-invasive Report-Only mode, useful for determining candidates for on/offboarding, prior to go-live
 - Safety mechanism to prevent sweeping changes in PAM brought by unexpected environmental changes
@@ -29,48 +30,49 @@ The utility leverages both PAM and EPM APIs to compare the computers (agents) th
 
 ## Prerequisites
 
-- One of the following CyberArk Privilege Access Management (PAM) platforms:
-    - CyberArk Privilege Access Management (PAM) Self-Hosted v11.6+
-    - CyberArk Privilege Cloud (Any Version)
-- CyberArk Endpoint Privilege Management (EPM) SaaS
-- PAM and EPM API credentials added to CyberArk PAM (CCP) or Windows Credential Manager
+- One of the following Idira Privilege Access Management (PAM) platforms:
+    - Idira Privilege Access Management (PAM) Self-Hosted v11.6+
+    - Idira Privilege Cloud (Any Version)
+- Idira Endpoint Privilege Management (EPM) SaaS with the Identity fabric onboarded to ISPSS
+- EPM Agent Version 24.12.0 or newer
+- PAM and EPM API credentials added to Idira PAM (CCP) or Windows Credential Manager
 - PowerShell v5 or greater
 
->**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), there is also a New EPM Discovery capability that will natively integrate with EPM for discovering and onboarding local accounts to be managed via LCD.  For more information on this capability, see CyberArk documentation [here](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-accounts-discovery-service.htm)
+>**NOTE**: For Privilege Cloud customers on the Shared Services platform (i.e. `subdomain.cyberark.cloud`), Discovery will natively integrate with EPM for discovering local accounts to be managed via LCD, and discovered accounts can subsequently be lifecycle managed through remediation rules.  For more information on these capabilities, see Idira documentation [here](https://docs.cyberark.com/manage/latest/en/content/discovery/discovery-discover-accounts-epm.htm) for details on EPM discovery and [here](https://docs.cyberark.com/manage/latest/en/content/discovery/discovery-accounts-discovery-rules.htm) for details on Remediation Rules.
 
 ## Deployment Overview
-1. Prepare a purpose-dedicated CyberArk PAM API User - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
+1. Prepare a purpose-dedicated Idira PAM API User - See [PAM API User Creation and Permissions](#pam-api-user-creation-and-permissions)
 
-2. Prepare a purpose-dedicated CyberArk EPM User - See [EPM API User Creation and Permissions](#epm-api-user-creation-and-permissions)
+2. Prepare a purpose-dedicated Idira Identity Service User for EPM - See [EPM API User Creation and Permissions](#epm-api-user-creation-and-permissions)
 
-3. Add the PAM and EPM user credentials to your choice of CyberArk PAM (CCP) or Windows Credential Manager
-    - For CyberArk PAM (CCP), see [CyberArk Central Credential Provider (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations)
+3. Add the PAM and EPM user credentials to your choice of Idira PAM (CCP) or Windows Credential Manager
+    - For Idira PAM (CCP), see [Idira Central Credential Provider (CCP) Considerations](#idira-central-credential-provider-ccp-considerations)
     - For Windows Credential Manager, see [Windows Credential Manager Considerations](#windows-credential-manager-considerations)
 
-4. Prepare the respective LCD Platforms (Windows, MacOS, and/or Linux) that will be used for onboarding in CyberArk PAM
+4. Prepare the respective LCD Platforms (Windows, MacOS, and/or Linux) that will be used for onboarding in Idira PAM
     - The LCD Platform for `Windows Loosely Device` is available out of the box
-    - The LCD Platform for `MAC Loosely Device` can be downloaded from CyberArk Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
-    - The LCD Platform for `Linux Looesly Device` can be downloaded from CyberArk Marketplace [here](https://cyberark.my.site.com/mplace/s/#a35Ht000001pcrlIAA-a39Ht000003ztibIAA)
-        - For complete instructions on importing a Platform, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Importaplatform)
-    - Critical to the effectiveness of this solution, is ensuring these Platforms are configured for `AutoChangeOnAdd = Yes`.  See official CyberArk documentation for this Platform parameter [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASREF/Platform%20Mgmnt%20-%20UI%20and%20Workflows.htm)
-        - For complete instructions on how to edit a Platform in order to make this configuration change, see official CyberArk documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Editaplatform)
+    - The LCD Platform for `MAC Loosely Device` can be downloaded from Idira Marketplace [here](https://cyberark-customers.force.com/mplace/s/#a3550000000El4QAAS-a3950000000jjtJAAQ)
+    - The LCD Platform for `Linux Looesly Device` can be downloaded from Idira Marketplace [here](https://cyberark.my.site.com/mplace/s/#a35Ht000001pcrlIAA-a39Ht000003ztibIAA)
+        - For complete instructions on importing a Platform, see official Idira documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Importaplatform)
+    - Critical to the effectiveness of this solution, is ensuring these Platforms are configured for `AutoChangeOnAdd = Yes`.  See official Idira documentation for this Platform parameter [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASREF/Platform%20Mgmnt%20-%20UI%20and%20Workflows.htm)
+        - For complete instructions on how to edit a Platform in order to make this configuration change, see official Idira documentation [here](https://docs.cyberark.com/PrivCloud/Latest/en/Content/PASIMP/manage-platforms.htm?tocpath=Administrators%7CManage%20platforms%7C_____0#Editaplatform)
 
     ![Example AutoChangeOnAdd](images/AutoChangeOnAdd.png)
 
 5. Customize the script for your environment and desired outcome - See [Assigning Script Variables](#assigning-script-variables) 
 
 6. Run the script!
-    >**NOTE:** The script default is set to `$ReportOnlyMode = $true` which will result in no actions taken against CyberArk PAM.  It is **highly recommended** to maintain this run mode for the initial execution, and following any change to script variables, in order to review onboarding and offboarding candidates for accuracy.  Once satisfied with these results, switch to `$ReportOnlyMode = $false` to commit the respective lifecycle activities against CyberArk PAM.
+    >**NOTE:** The script default is set to `$ReportOnlyMode = $true` which will result in no actions taken against Idira PAM.  It is **highly recommended** to maintain this run mode for the initial execution, and following any change to script variables, in order to review onboarding and offboarding candidates for accuracy.  Once satisfied with these results, switch to `$ReportOnlyMode = $false` to commit the respective lifecycle activities against Idira PAM.
 
 7. **[OPTIONAL]** Configure the script to run on a routine basis - See [Running via Scheduled Task (Non-Interactively)](#running-via-scheduled-task-non-interactively)
 
 ## PAM API User Creation and Permissions
-A purpose-dedicated user should be created in PAM for use with this utility.  For Self-Hosted PAM or Privilege Cloud Standalone, this would be a Vault Local User (leveraging CyberArk Authentication).  For Privilege Cloud Shared Services, this would be a CyberArk Identity Cloud Account (Service User).  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the CyberArk audit record as coming from this utility.
+A purpose-dedicated user should be created in PAM for use with this utility.  For Self-Hosted PAM or Privilege Cloud Standalone, this would be a Vault Local User (leveraging Internal Authentication).  For Privilege Cloud Shared Services, this would be a Idira Identity Cloud Account (Service User).  Its username is implementer's choice, recommendation is to choose a name that is easy to identify and attribute in the Idira audit record as coming from this utility.
 
 The user should be created as a "Standard user" (for Self-Hosted PAM and Privilege Cloud Standard) or otherwised added to the "Privilege Cloud Users" role (for Privilege Cloud Shared Services).  No Vault level authorizations or built-in group memberships are mandatory for this user.
 
-For complete instructions on how to create this user, see official CyberArk documentation links below:
-- [Add a User - Privilege Cloud Shared Services (i.e. subdomain.cyberark.cloud)](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/ISPSS/ISPSS-API-Authentication.htm#Step1CreateaServiceuserforAPIrequests)
+For complete instructions on how to create this user, see official Idira documentation links below:
+- [Add a User - Privilege Cloud Shared Services (i.e. subdomain.cyberark.cloud)](https://api-docs.cyberark.com/create-api-token/docs/create-api-token#step-1-create-an-ispss-service-account)
 - [Add a User - Privilege Cloud Standard/Standalone (i.e. subdomain.privilegecloud.cyberark.com)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-user-mng.htm?tocpath=Setup%7CAdd%20and%20manage%20users%7C_____0#CreateCyberArkusers)
 - [Add a User - PAM Self-Hosted (13.2 and above)](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Users-groups-add-users-v10.htm?tocpath=Administrator%7CUser%20Management%7CManage%20users%20and%20groups%7CUsing%20the%20version%2010%20interface%7C_____1)
 - [Add a User - PAM Self-Hosted (13.0 and below)](https://docs.cyberark.com/PAS/13.0/en/Content/PASIMP/Managing-Users.htm?tocpath=Administrator%7CUser%20Management%7C_____4#AddausertoaVault)
@@ -96,31 +98,24 @@ For Safes that will be considered for onboarding activity, these being the stati
 >`* ` - Specifically required for un-delete scenarios<br/>
 >`**` - Required if this safe should also be considered for offboarding
 
-For complete instructions on how to permission a Safe, see official CyberArk documentation links below:
+For complete instructions on how to permission a Safe, see official Idira documentation links below:
 - [Add Safe Members - Privilege Cloud Shared Services (i.e. subdomain.cyberark.cloud)](https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm#AddSafemembers)
 - [Add Safe Members - Privilege Cloud Standard/Standalone (i.e. subdomain.privilegecloud.cyberark.com)](https://docs.cyberark.com/PrivCloud/Latest/en/Content/Privilege%20Cloud/privCloud-manage-safe-members.htm?tocpath=Administrators%7CCreate%20Safes%20and%20assign%20access%7C_____2#AddSafemembers)
-- [Add Safe Members - PAM Self-Hosted](https://docs.cyberark.com/PAS/Latest/en/Content/PASIMP/Safes-add-a-safe-member-V12-6.htm?tocpath=Administrator%7CPrivileged%20Accounts%7CAccess%20Control%7CSafes%20and%20Safe%20members%7CNew%20interface%7C_____3#AddaSafemember1)
+- [Add Safe Members - PAM Self-Hosted](https://docs.cyberark.com/pam-self-hosted/latest/en/content/pasimp/safes-add-a-safe-member.htm)
 
 ## EPM API User Creation and Permissions
-A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  At this time there are limited options for creating API-dedicated logins in EPM since logins require E-Mail activation and the login must also remain unique.  To overcome this limitation, you might consider establishing an organizational mailbox for this account, if viable.  Alternatively, the same E-Mail of an existing login may be used in the creation of a new and unique login through the plus addressing technique:
+A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  
 
-Existing Login Example Email - john.doe@company.com <br/>
-New Login Example Email - john.doe+lcd_lifecycle@company.com <br/>
+The initial steps of [onboarding your EPM tenant to ISPSS](https://docs.cyberark.com/epm/latest/en/content/admin/onboard-epm-to-ispss.htm) include establishing access to EPM via the Idira Identity platform, and reviewing [the changes to role-based access control](https://docs.cyberark.com/epm/latest/en/content/admin/role-based-access-control.htm).
 
-Using a login value as in the above "new" example, would send the activation E-Mail to john.doe@company.com, without impacting the existing john.doe@company.com login.
+To support this solution, EPM Role(s) must be established that map the View Only Set Admin permission group to the EPM Set(s) in scope for lifecycle management.  Once these Role(s) are established, you can create a new Idira Service User by following the Step 1 section of the documentation linked [here](https://docs.cyberark.com/epm/latest/en/content/webservices/authenticate-with-identity-administration.htm).
 
-The login you create for this utility only needs marked as **"Allow to manage Sets"** along with **"View Only Set Admin"** bindings on any Sets that will be in scope for this utility.
+## Idira Central Credential Provider (CCP) Considerations
+Leveraging Idira PAM as the credential store for the PAM and EPM API credentials is recommended wherein available, as this allows for management of these API credentials without ever needing to modify the utility's host or the solution itself!  If you are uncertain whether you have CCP licensing or this capability established in your environment, reach out to your Idira account team.
 
-This utility does not require any modifying access to EPM.
+When leveraging CCP, a purpose-dedicated application entry should be created in Idira.
 
-For complete instructions on how to create a user in EPM, see official CyberArk documentation [here](https://docs.cyberark.com/EPM/Latest/en/Content/Admin/AccountAdministrator.htm#Managesetusers).
-
-## CyberArk Central Credential Provider (CCP) Considerations
-Leveraging CyberArk PAM as the credential store for the PAM and EPM API credentials is recommended wherein available, as this allows for management of these API credentials without ever needing to modify the utility's host or the solution itself!  If you are uncertain whether you have CCP licensing or this capability established in your environment, reach out to your CyberArk account team.
-
-When leveraging CCP, a purpose-dedicated application entry should be created in CyberArk.
-
-The CCP integration with this utility supports the choice of OS User, Client Certificate or Allowed Machines authentication mechanisms to the CCP.  Allowed Machines authentication may also be implemented as an additional layer to OS User and Client Certificate authentication in the CyberArk application configuration if so desired.
+The CCP integration with this utility supports the choice of OS User, Client Certificate or Allowed Machines authentication mechanisms to the CCP.  Allowed Machines authentication may also be implemented as an additional layer to OS User and Client Certificate authentication in the Idira application configuration if so desired.
 
 When implementing Client Certificate authentication, the certificate you wish to use should be installed in the local machine's personal certificate store.  Note that this utility does not need to be (and should not be) run with administrative privileges.  As a result, it may be necessary to delegate explicit permissions to the client certificate's private key for the executing context.  This may be required for a standard user when running interactively, or for a local service when implementing non-interactively via a Scheduled Task.  The script will notify you via log and console output during execution, if you lack permissions to the certificate's private key.
 
@@ -130,11 +125,11 @@ To delegate permissions to the certificate's private key, open the local machine
 
 2. Add the script's executing context to the Access Control List (ACL) and grant "Read" permissions
 
-For general information on the CyberArk Central Credential Provider (CCP), please refer to CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm)
+For general information on the Idira Central Credential Provider (CCP), please refer to Idira's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/The-Central%20-Credential-Provider.htm)
 
-For guidance on configuring CCP for OS User authentication, see CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#ConfigureWindowsDomainAuthentication)
+For guidance on configuring CCP for OS User authentication, see Idira's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#ConfigureWindowsDomainAuthentication)
 
-For guidance on configuring CCP for Certificate authentication, see CyberArk's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#SecurecommunicationbetweenapplicationsandtheCentralCredentialProvider)
+For guidance on configuring CCP for Certificate authentication, see Idira's official documentation [here](https://docs.cyberark.com/AAM-CP/Latest/en/Content/CCP/Configure_CCPWindows.htm#SecurecommunicationbetweenapplicationsandtheCentralCredentialProvider)
 
 ## Windows Credential Manager Considerations
 When choosing to leverage the Windows Credential Manager, each API credential must be manually added to the Credential Manager under the user context that intends to execute the utility.  This may be your standard interactive user, or a purpose-dedicated service account that has been logged in interactively to complete these steps.
@@ -167,15 +162,15 @@ $PAMCredTarget = "EPMLCD_Lifecycle_PAMAPI"
 ```
 
 ## Running via Scheduled Task (Non-Interactively)
-In general, the setup of a scheduled task to run this utility on a periodic basis (time based trigger) is very straight forward.   The options for the user that is assigned to run this scheduled task depends on whether CyberArk PAM (CCP) or the Windows Credential Manager are used as the store for the PAM and API credentials.
+In general, the setup of a scheduled task to run this utility on a periodic basis (time based trigger) is very straight forward.   The options for the user that is assigned to run this scheduled task depends on whether Idira PAM (CCP) or the Windows Credential Manager are used as the store for the PAM and API credentials.
 
-When using `CyberArk PAM (CCP)` as the credential store, and when using:
+When using `Idira PAM (CCP)` as the credential store, and when using:
 
 - `Client Certificate` (and/or Allowed Machines) Authentication
-    - The task may simply run as the `LOCAL SERVICE` account, with permissions being appropriately delegated to the client certificate's private key, as described in the section [CyberArk Central Credential Manager (CCP) Considerations](#cyberark-central-credential-provider-ccp-considerations) above.
+    - The task may simply run as the `LOCAL SERVICE` account, with permissions being appropriately delegated to the client certificate's private key, as described in the section [Idira Central Credential Manager (CCP) Considerations](#idira-central-credential-provider-ccp-considerations) above.
 
 - `OS User` Authentication
-    - The task may run as `NETWORK SERVICE`, a named domain (traditional) service account, or as a Group-Managed Service Account (gMSA).  When running as `NETWORK SERVICE`, the OS User entry on the CyberArk Application defined for this solution should be set to `<NB_DOMAIN_NAME>\<HOSTNAME>$`.  For example if the NetBIOS Domain Name was "CYBR" and the host's computer name was "CPM", then the OS User entry on the CyberArk Application defined for this solution should be `CYBR\CPM$`
+    - The task may run as `NETWORK SERVICE`, a named domain (traditional) service account, or as a Group-Managed Service Account (gMSA).  When running as `NETWORK SERVICE`, the OS User entry on the Idira Application defined for this solution should be set to `<NB_DOMAIN_NAME>\<HOSTNAME>$`.  For example if the NetBIOS Domain Name was "CYBR" and the host's computer name was "CPM", then the OS User entry on the Idira Application defined for this solution should be `CYBR\CPM$`
 
 When using `Windows Credential Manager` as the credential store:
 
@@ -222,23 +217,19 @@ There are a series of script variables that must be set off default, to values t
 
 ### Auxillary Options
 - `$SendSummaryEmail`
-    - When set to `$true` will send an execution summary E-Mail to the recipient configured in `$EmailToAddress`.
+    - When set to `$true` will send an execution summary E-Mail to the recipient configured in `$EmailToAddress`.  Default is `$false`.
 - `$EmailWithSsl`
     - When set to `$true` will send the execution summary E-Mail using SSL/TLS.
 - `$EmailFullReportAndLog`
     - When set to `$true` will send the complete log and report file as attachments with the execution summary E-Mail.
 - `$VersionCheck`
     - When set to `$true` will compare to the latest script available on GitHub and log/notify if a new version is available.
-- `$ValidateDomainNamesDNS`
-    - When set to `$true` will leverage DNS lookups to attempt discovery of EPM endpoint FQDNs for onboarding accuracy.
-    Used with `$EndpointDomainNames` (See entry above for more details).
-    Used with `$SkipIfNotInDNS` (See entry below for more details).
-- `$SkipIfNotInDNS`
-    - When set to `$true` will skip candidacy for any EPM Endpoints that cannot be explicitly resolved in DNS.  When set to `$false`, endpoints in EPM that cannot be DNS resolved, will be considered "domain-less" for lifecycle candidacy.  Only used when `$ValidateDomainNamesDNS` is set to `$true`, otherwise this can be ignored.
 - `$IgnoreSSLCertErrors`
     - When set to `$true` will ignore any TLS/SSL untrusted certificate errors that would normally prevent the connection. It is recommended to leave this value as `$false` to ensure certificates are verified!
 - `$OffboardingDelayDays`
     - Number of days from the account's last modified date in PAM, to delay offboarding, should no corresponding endpoint exist in the EPM database.  The default value is 0 (no delay). 
+- `$PopulateLogonDomain`
+    - When set to `$true` will attempt to populate the LogonDomain property for accounts that are associated with Windows devices.  This property must be populated to support PSM-RDP workflows.  This is set to `$false` by default to preserve backwards compatibility.
 
 ### General Environment Details
 - `$EndpointUserNamesWin`
@@ -248,41 +239,6 @@ There are a series of script variables that must be set off default, to values t
 - `$EndpointUserNamesLinux`
     - List of one or more local account usernames to lifecycle manage for all Linux-based EPM endpoints.<br/><br/>
     >**NOTE:** There is no detection or validation of an account's existence on the respective endpoints!  An account will be onboarded to PAM for each username provided in this list, and for every Windows/MacOS/Linux endpoint, regardless if it actually exists on a given endpoint or not.
-- `$EndpointDomainNames`
-    - List of one or more DNS domain names that EPM endpoints have membership to. Applicable only for Windows endpoints as Mac/Linux endpoints are assumed to have an incorporated domain/DNS suffix (if any). Used with `$ValidateDomainNamesDNS` and `$SkipIfNotInDNS` -- See below for complete info on these variables.
-        - If `$ValidateDomainNamesDNS` is set to `$false`, `$EndpointDomainNames` must be set to a single domain name or empty (i.e. "").  
-        - If `$ValidateDomainNamesDNS` is set to `$true`, `$EndpointDomainNames` may remain empty, contain a single domain name, or contain multiple domain names.  
-        - If `$ValidateDomainNamesDNS` is set to `$true` and `$EndpointDomainNames` is empty, the DNS Client's Suffix Search List will be used.
-
-        <br/>
-        Valid Examples / Scenarios:
-        <br/>
-        
-        Disable Domain Name resolution via DNS and consider all EPM endpoints as having a standard domain-name of "cybr.com":
-        ```powershell
-        $EndpointDomainNames = "cybr.com"
-        $ValidateDomainNamesDNS = $false
-        ```
-
-        Disable Domain Name resolution via DNS and consider all EPM endpoints as having no domain name:
-        ```powershell
-        $EndpointDomainNames = ""
-        $ValidateDomainNamesDNS = $false
-        ```
-                            
-        Enable Domain Name resolution via DNS and consider EPM endpoints WILL have membership in one of several possible domain names (will skip candidacy if unable to resolve in DNS):
-        ```powershell
-        $EndpointDomainNames = "cybr.com","childA.cybr.com","childB.cybr.com"
-        $ValidateDomainNamesDNS = $true
-        $SkipIfNotInDNS = $true
-        ```
-
-        Enable Domain Name resolution via DNS and consider EPM endpoints MAY have membership in one of several possible domain names or are otherwise domain-less (Will assume no domain name for candidacy, if unable to resolve in DNS):
-        ```powershell
-        $EndpointDomainNames = "cybr.com","childA.cybr.com","childB.cybr.com"
-        $ValidateDomainNamesDNS = $true
-        $SkipIfNotInDNS = $false
-        ```
 - `$EndpointHostnameExclusionsRegex`
     - Regular expression for determining which EPM endpoints (Computer Name) or PAM accounts (Address) should be excluded from lifecycle management activities.  Supports a list of regex strings to help simplify more complex needs at scale.  If left as an empty string (default), there will be no exclusions made by hostname.
 - `$OnboardingPlatformIdWin`
@@ -298,15 +254,17 @@ There are a series of script variables that must be set off default, to values t
 - `$OnboardingSafesLinux`
     - A list of one or more Safes that Linux LCD accounts will be onboarded into.
 - `$LCDPlatformSearchRegex`
-    - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making offboarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets (See section [Advanced Domain Name EPM Set Targeting and Process Scoping](#advanced-domain-name-epm-set-targeting-and-process-scoping)).  In most situations the default value of ".*" will be sufficient.
+    - Regular expression for determining which accounts, as assigned to the regex matched LCD-derived platforms, should be considered "in scope" for making offboarding determinations.  Used in more advanced setups that require silo'd scopes, for running multiple script processes against different EPM sets.  In most situations the default value of ".*" will be sufficient.
 - `$SafeSearchList`
-    - List of CyberArk Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.  May be left empty (i.e. "") to search all safes. <br/><br/>
+    - List of Idira Safes which will be searched for existing LCD accounts in PAM, when determining lifecycle candidates.  May be left empty (i.e. "") to search all safes. <br/><br/>
     
     >**NOTE:** The PAM API user's permissions will also dictate, and may limit, which Safes can and will be searched!
+- `$ISPSubdomain` **[NEW!]**
+    - The subdomain of your Idira Identity Security Platform (ISP) tenant. (e.g. https://SUBDOMAIN.cyberark.cloud)
 - `$EPMSetIDs`
     - List of the EPM Set IDs to use for this process.  May be left empty (i.e. "") to use all Sets within the EPM tenant.
-- `$EPMRegion`
-    - The region of your EPM SaaS tenant.  Must be set to one of the following values:  US, AU, CA, EU, IN, IT, JP, SG, UK, or BETA
+- `$EPMApiClientAppId` **[NEW!]**
+    - The custom Idira EPM API Client App that was created per documentation [here](https://docs.cyberark.com/epm/latest/en/content/webservices/authenticate-with-identity-administration.htm#Step3CreateacustomEPMAPIwebapp).  This value is optional.  If left as an empty string, the script will leverage the general Identity Security Platform (ISP) builtin platform token endpoint documented [here](https://api-docs.cyberark.com/create-api-token/docs/create-api-token#step-2-get-the-bearer-token).
 - `$PAMHostname`
     - The base hostname of the Self-Hosted PAM or Privilege Cloud (i.e. "subdomain.privilegecloud.cyberark.com" or "subdomain.cyberark.cloud")
 - `$SMTPRelayHostname`
@@ -321,16 +279,16 @@ There are a series of script variables that must be set off default, to values t
     - Determines the source for PAM and EPM API credential lookup.  There are two possible settings:
 
         ```powershell
-        [APIUserSource]::CyberArkCCP
+        [APIUserSource]::IdiraCCP
         ```
-        Will use CyberArk Central Credential Provider for API credential lookup **[RECOMMENDED]**
+        Will use Idira Central Credential Provider for API credential lookup **[RECOMMENDED]**
 
         ```powershell
         [APIUserSource]::WinCredMgr
         ```
         Will use the Windows Credential Manager for API credential lookup
 
-        CyberArk CCP is generally recommended wherein available, as this simplifies solution setup and allows for regular credential rotation for the API users without the need to update any configuration points on the solution's host.
+        Idira CCP is generally recommended wherein available, as this simplifies solution setup and allows for regular credential rotation for the API users without the need to update any configuration points on the solution's host.
 
 ### Populated When API User Source is `[APIUserSource]::WinCredMgr`
 - `$PAMCredTarget`
@@ -338,7 +296,7 @@ There are a series of script variables that must be set off default, to values t
 - `$EPMCredTarget`
     - The "Internet or network address" value that was used when entering the `EPM` API credential into Windows Credential Manager.
     
-### Populated when API User Source is `[APIUSerSource]::CyberArkCCP`
+### Populated when API User Source is `[APIUSerSource]::IdiraCCP`
 - `$CCPAuthType`
     - Determines the authentication type against CCP when used as the API user source.  There are three possible settings:
 
@@ -355,28 +313,28 @@ There are a series of script variables that must be set off default, to values t
         ```powershell
         [CCPAuthType]::AllowedMachines
         ```
-        Will depend solely upon an allowed machines listing in CyberArk for authentication
+        Will depend solely upon an allowed machines listing in Idira for authentication
 
-        >**NOTE:**  Allowed Machines authentication may be layered on to OSUser or Certificate based authentication in the CyberArk configuration.  
+        >**NOTE:**  Allowed Machines authentication may be layered on to OSUser or Certificate based authentication in the Idira configuration.  
 
 - `$CertThumbprint`
     - The SHA1 thumbprint of the client certificate to use for authentication to CCP.
 - `$PAMAccountName`
     - The account name (aka object name) of the vaulted account that represents the PAM API credential.
 - `$PAMObjectSafe`
-    - The Safe where the vaulted account that represents the PAM API credential is held in CyberArk.
+    - The Safe where the vaulted account that represents the PAM API credential is held in Idira.
 - `$EPMAccountName`
     - The account name (aka object name) of the vaulted account that represents the EPM API credential.
 - `$EPMObjectSafe`
-    - The Safe where the vaulted account that represents the EPM API credential is held in CyberArk.
+    - The Safe where the vaulted account that represents the EPM API credential is held in Idira.
 - `$CCPHostname`
-    - The base hostname of the CyberArk CCP (i.e. "ccp.cybr.com")  
+    - The base hostname of the Idira CCP (i.e. "ccp.cybr.com")  
 - `$CCPPort`
-    - The port number for the CyberArk CCP listener (i.e. 443)
+    - The port number for the Idira CCP listener (i.e. 443)
 - `$CCPServiceRoot`
     - The IIS application/service root that should be used for the web call to CCP (i.e. AIMWebService).
 - `$CCPAppID`
-    - The Application ID registered in CyberArk that should be used identification to CCP.
+    - The Application ID registered in Idira that should be used identification to CCP.
 
 # General Usage and Advanced Techniques
 
@@ -468,61 +426,22 @@ Example execution summary E-Mail with attachments:
 
 >**NOTE:** The technique leverages PowerShell's native `Send-MailMessage` cmdlet which has been designated as deprecated by Microsoft, and without a suitable replacement being provided natively in .NET.  Even so, this cmdlet should remain adequate for anonymous transmission via internal mail gateways, which should naturally align to its intended use.
 
-## Advanced Domain Name EPM Set Targeting and Process Scoping
-At present, the EPM API does not provide an endpoint's affiliated domain name.  However, determining an endpoint's domain name, and thus its fully qualified domain name (FQDN), is critical to onboarding accuracy and ensuring the endpoint's LCD mechanism finds an appropriate match in PAM.  To account for this, we have two primary options for discovering or appending possible domain names:
-
-1. We can attempt to discover the domain name via DNS against a set of possible domain names
-
-2. We can assert a static and known domain name for all endpoints that are in scope of the running utility process (e.g. EPM Sets)
-
-In scenarios wherein all possible Windows endpoints across all possible EPM Sets, will always be members of a single known domain name, we can easily achieve the desired result with a single utility process by disabling Dynamic resolution (`$ValidateDomainNamesDNS = $false`) and defining our domain name to the script accordingly.   However, wherein EPM agents may be deployed across endpoints that hold membership in a diverse spread of varied domains, and wherein domain name resolution via DNS is also not possible or otherwise deemed unreliable, another approach is required.
-
-This utility supports multiple processes to be defined and executed in parallel, working through the use of strategic EPM Set design and PAM Platform alignment, to support accurate domain name mapping in multi-domain environments.
-
-Illustrated below is a two-domain example where EPM contains endpoints may have membership in either DomainA.com or DomainB.net, and the steps for how to approach:
-
-1. If not already established, separate endpoints into unique EPM Sets, each pertaining to their respective domain.  
-    - Consider endpoints for example, with membership in `DomainA.com` as belonging to EPM Set Id `{abc123}` and endpoints with membership in `DomainB.net` as belonging to EPM Set Id `{xzy987}`.
-
-2. Create separate LCD platforms for each domain using a regex-friendly naming convention
-    - Consider endpoints for example, with membership in `DomainA.com` as targeting one or more platforms beginning with `_CYBR_LCD_SetA_` and endpoints with membership in `DomainB.net` as targeting one or more platforms named `_CYBR_LCD_SetB_`
-
-3. Configure separate utility processes (e.g. Scheduled Tasks) with the following uniquely defined variables:
-
-    - DomainA
-        ```Powershell
-        ...
-        $OnboardingPlatformIdWin = "_CYBR_LCD_SetA_Windows"
-        $LCDPlatformSearchRegex = "^_CYBR_LCD_SetA_.*$"
-        $EPMSetIDs = "{abc123}"
-        ...
-        ```
-    - DomainB
-        ```powershell
-        ...
-        $OnboardingPlatformIdWin = "_CYBR_LCD_SetB_Windows"
-        $LCDPlatformSearchRegex = "^_CYBR_LCD_SetB_.*$"
-        $EPMSetIDs = "{xyz987}"
-        ...
-        ```
-These settings will ensure that lifecycle candidacy remains effectively silo'd for each process (thanks to the unique EPM Set and Platform(s) that each process will leverage) and will prevent false offboarding for accounts that are being authoritatively lifecycle managed through a neighboring process.
-
 # Limitations and Known Issues
 ## The utility is only returning 20,000 accounts when searching PAM
-Although the CyberArk PAM API supports a paginated return, the [Get Accounts](https://docs.cyberark.com/PAS/Latest/en/Content/SDK/GetAccounts.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____1) endpoint is bound by an upper limit of `20,000` accounts by default.  This is upper limit is functionally tied to the `MaxDisplayedRecords` Parameter in PAM's configuration under `Administration > Options > Accounts UI Preferences > Main > View Settings`.  To proactively design around this limitation, `$MaxSafeObjects` has been set to 20,000 by default.  This will allow scaling across Safes (with up to 20,000 objects per Safe) without any adverse impact or need to make any adjustment to `MaxDisplayedRecords`, so long as `$SafeSearchList` is also utilized (recommended).
+Although the Idira PAM API supports a paginated return, the [Get Accounts](https://docs.cyberark.com/PAS/Latest/en/Content/SDK/GetAccounts.htm?tocpath=Developer%7CREST%20APIs%7CAccounts%7C_____1) endpoint is bound by an upper limit of `20,000` accounts by default.  This is upper limit is functionally tied to the `MaxDisplayedRecords` Parameter in PAM's configuration under `Administration > Options > Accounts UI Preferences > Main > View Settings`.  To proactively design around this limitation, `$MaxSafeObjects` has been set to 20,000 by default.  This will allow scaling across Safes (with up to 20,000 objects per Safe) without any adverse impact or need to make any adjustment to `MaxDisplayedRecords`, so long as `$SafeSearchList` is also utilized (recommended).
 
 >**NOTE:** This setting also affects the PAM Web UI (Password Vault Web Access), so it is recommended to increase in increments (if required), and closely monitor Web UI performance following each change to ensure this does not detrimentally affect your environment's performance.
 
-See the following CyberArk Knowledge Base (KB) article that describes making this change [here](https://cyberark-customers.force.com/s/article/PVWA-All-accounts-only-show-up-to-20000-records)
+See the following Idira Knowledge Base (KB) article that describes making this change [here](https://cyberark-customers.force.com/s/article/PVWA-All-accounts-only-show-up-to-20000-records)
 
 ![MaxDisplayedRecords](images/maxdisplayedrecords.png)
 
-If you are interested in having this upper limit bound to another configuration parameter (as to not consequentially affect the Web UI), or to be eliminated entirely, you might consider adding your up-vote to the CyberArk Enhancement Request (ER) [here](https://cyberark-customers.force.com/s/article/Allow-REST-API-request-more-accounts-than-the-MaxDisplayedRecords-EQAQ)
+If you are interested in having this upper limit bound to another configuration parameter (as to not consequentially affect the Web UI), or to be eliminated entirely, you might consider adding your up-vote to the Idira Enhancement Request (ER) [here](https://cyberark-customers.force.com/s/article/Allow-REST-API-request-more-accounts-than-the-MaxDisplayedRecords-EQAQ)
 
->**NOTE:** Up-voting ERs requires a CyberArk Technical Community Login
+>**NOTE:** Up-voting ERs requires a Idira Technical Community Login
 
 ## ERROR: *Failed to get LCD derived platforms --> "...The given key was not present in the dictionary..."*
-Presence of this error may indicate a backend configuration disparity with CyberArk Platforms.  See the following CyberArk Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
+Presence of this error may indicate a backend configuration disparity with Idira Platforms.  See the following Idira Knowledge Base (KB) article for details on how to possibly resolve this [here](https://cyberark-customers.force.com/s/article/pCloud-Get-Platforms-API-returns-CAWS00001E-The-given-key-was-not-present-in-the-dictionary)
 
 ## ERROR: *"EPVWA179E A CPM change task is not currently allowed."*
 Presently, the PAM API does not provide sufficient detail to denote when an account is already scheduled for an immediate change.  As a result, when the script is executed multiple times in rapid succession, it's possible that a password change queueing will be attempted on accounts which have already been scheduled.  In these situations, the error *"EPVWA179E A CPM change task is not currently allowed."* will be received which is expected and is safe to ignore.  
@@ -532,18 +451,9 @@ To avoid these errors, it is generally recommended to delay subsequent script ex
 ## PowerShell ISE Logging
 The script has been shown to experience intermittent issues writing to the log file, due to file locks, when running from within PowerShell ISE.  Therefore it is highly recommended that when running this script interactively, it be done from a standard PowerShell prompt and not from within PowerShell ISE.
 
-## Fully Qualified Domain Name (FQDN) Reliability
-As mentioned in the [Advanced Domain Name EPM Set Targeting and Process Scoping](#Advanced-Domain-Name-EPM-Set-Targeting-and-Process-Scoping) section above, the EPM API does not presently provide the FQDN nor DNS Suffix for Windows endpoints.  
-
-The FQDN for Windows endpoints is a required data point for PAM onboarding and its accuracy is critical for ensuring the LCD mechanism will engage for these endpoints.  This utility can be configured to use the same, static, DNS suffix for all Windows endpoints, or to use DNS to resolve an endpoint's FQDN (potentially useful for mixed domain environments).  Unfortunately, neither solution may provide for a reliable or complete solution in every environment.  The objectively ideal outcome would be for the EPM API to simply provide this data point for us authoritatively.
-
-If you would like to see the EPM API provide the FQDN (or DNS Suffix) for endpoints, please show your support by adding your vote to [this Enhancement Request (ER)](https://cyberark.my.site.com/s/article/EPM-API-to-provide-FQDN-of-computer-endpoints-c6f9-c8f)
-
->**NOTE:** Up-voting ERs requires a CyberArk Technical Community Login
-
 # Support
 
-This project is neither developed nor supported by CyberArk; any official support channels offered by the vendor are not appropriate for seeking help with the implementation or function of this solution.
+This project is neither developed nor supported by Palo Alto Networks; any official support channels offered by the vendor are not appropriate for seeking help with the implementation or function of this solution.
 
 Help and support should be sought by [opening an issue][new-issue].
 
