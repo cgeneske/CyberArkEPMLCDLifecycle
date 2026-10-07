@@ -104,11 +104,15 @@ For complete instructions on how to permission a Safe, see official Idira docume
 - [Add Safe Members - PAM Self-Hosted](https://docs.cyberark.com/pam-self-hosted/latest/en/content/pasimp/safes-add-a-safe-member.htm)
 
 ## EPM API User Creation and Permissions
-A purpose-dedicated login to your EPM tenant is recommended for use with this utility.  
+A purpose-dedicated Idira Service User (Confidential Client) for EPM is recommended for this utility.  
 
-The initial steps of [onboarding your EPM tenant to ISPSS](https://docs.cyberark.com/epm/latest/en/content/admin/onboard-epm-to-ispss.htm) include establishing access to EPM via the Idira Identity platform, and reviewing [the changes to role-based access control](https://docs.cyberark.com/epm/latest/en/content/admin/role-based-access-control.htm).
+The initial steps of [onboarding your EPM tenant to ISPSS](https://docs.cyberark.com/epm/latest/en/content/admin/onboard-epm-to-ispss.htm) include establishing access to EPM via the Idira Identity platform, and reviewing [role-based access control in EPM](https://docs.cyberark.com/epm/latest/en/content/admin/role-based-access-control.htm).
 
-To support this solution, EPM Role(s) must be established that map the View Only Set Admin permission group to the EPM Set(s) in scope for lifecycle management.  Once these Role(s) are established, you can create a new Idira Service User by following the Step 1 section of the documentation linked [here](https://docs.cyberark.com/epm/latest/en/content/webservices/authenticate-with-identity-administration.htm).
+The Idira Service User will require assignment of the `View Only Set Admin` permission group across all EPM Set(s) that are in scope for lifecycle management.  
+
+If appropriate roles have not yet been established, within EPM, begin by [creating one or more role(s)](https://docs.cyberark.com/epm/latest/en/content/admin/role-based-access-control.htm#Createarole) that map to the `View Only Set Admin` permission group on your targeted EPM sets.  These roles will automatically project into Idira Manage Space as `EPM_<ROLE NAME>`, which is where future membership assignment will be conducted.
+
+Create a new Idira Service User by following the Step 1 section of the documentation linked [here](https://docs.cyberark.com/epm/latest/en/content/webservices/authenticate-with-identity-administration.htm), and add this Service User to the established EPM Roles as documented [here](https://docs.cyberark.com/epm/latest/en/content/admin/role-based-access-control.htm#AssignEPMrolestousers).
 
 ## Idira Central Credential Provider (CCP) Considerations
 Leveraging Idira PAM as the credential store for the PAM and EPM API credentials is recommended wherein available, as this allows for management of these API credentials without ever needing to modify the utility's host or the solution itself!  If you are uncertain whether you have CCP licensing or this capability established in your environment, reach out to your Idira account team.
