@@ -32,7 +32,7 @@ agent-enhanced, loosely-connected, credential management capabilities for their 
 The design of this utility is to automate the Idira PAM account lifecycle for one or more standardized local accounts, on endpoints with an 
 EPM agent.  These would be accounts that inherently exist on every endpoint of a given platform type (Windows, Mac, or Linux) as a part of its 
 standard baseline (i.e. The Windows Built-In "Administrator").  It achieves this using data obtained exclusively from user-defined script variables, 
-the Idira PAM and EPM APIs, and optionally DNS (for endpoint FQDN resolution).
+and the Idira PAM and EPM APIs.
 
 The utility leverages both PAM and EPM APIs to compare the computers (agents) that exist in EPM against related local accounts that exist in PAM, 
 automatically determining and executing the needed onboarding, change queueing, and offboarding actions in PAM.  As new agents come online in EPM, 
